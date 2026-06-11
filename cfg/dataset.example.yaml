@@ -1,0 +1,7 @@
+# Copy this file and update the paths for your labeled training-range dataset.
+path: D:/datasets/cs2-training-range
+train: images/train
+val: images/val
+
+names:
+  0: enemy
