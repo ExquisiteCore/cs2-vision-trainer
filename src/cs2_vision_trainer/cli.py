@@ -11,6 +11,7 @@ from cs2_vision_trainer.annotation import (
     AnnotatorState,
     collect_image_paths,
     draw_annotation_overlay,
+    filter_images_missing_labels,
     load_current_boxes,
     normalize_box,
     point_in_box,
@@ -89,6 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
     annotate.add_argument("--images", default="datasets/cs2_enemy/images/raw", help="image directory")
     annotate.add_argument("--labels", default="datasets/cs2_enemy/labels/raw", help="label directory")
     annotate.add_argument("--pattern", default="*", help="image filename pattern, for example xxx_01_error_*.jpg")
+    annotate.add_argument("--missing-only", action="store_true", help="only show images without label files")
     annotate.add_argument("--class-index", type=int, default=0)
     annotate.add_argument("--window", default="CS2 Annotator")
     annotate.set_defaults(func=annotate_images)
@@ -311,6 +313,8 @@ def review_video(args: argparse.Namespace) -> int:
 
 def annotate_images(args: argparse.Namespace) -> int:
     image_paths = collect_image_paths(Path(args.images), pattern=args.pattern)
+    if args.missing_only:
+        image_paths = filter_images_missing_labels(image_paths, Path(args.labels))
     if not image_paths:
         print(f"no images found: {args.images} pattern={args.pattern}")
         return 1

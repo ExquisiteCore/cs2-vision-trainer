@@ -97,3 +97,26 @@ def test_build_command_for_annotate_extracted_filters_current_video_frames():
         "--pattern",
         "xxx_02_frame_*.jpg",
     ]
+
+
+def test_build_command_for_annotate_missing_filters_unlabeled_extracted_frames():
+    config = GuiConfig(
+        video_path=Path("videos/xxx_02.mp4"),
+        model_path=Path("runs/detect/train-2/weights/best.pt"),
+        dataset_root=Path("datasets/cs2_enemy"),
+        device="0",
+    )
+
+    command = build_command(config, "annotate_missing")
+
+    assert command == [
+        "cs2-vision-trainer",
+        "annotate",
+        "--images",
+        "datasets\\cs2_enemy\\images\\raw",
+        "--labels",
+        "datasets\\cs2_enemy\\labels\\raw",
+        "--pattern",
+        "xxx_02_frame_*.jpg",
+        "--missing-only",
+    ]

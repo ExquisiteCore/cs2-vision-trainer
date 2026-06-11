@@ -44,6 +44,10 @@ def collect_image_paths(images_dir: Path, *, pattern: str = "*") -> list[Path]:
     return sorted(path for path in images_dir.glob(pattern) if path.suffix.lower() in IMAGE_SUFFIXES)
 
 
+def filter_images_missing_labels(image_paths: list[Path], labels_dir: Path) -> list[Path]:
+    return [path for path in image_paths if not (labels_dir / f"{path.stem}.txt").exists()]
+
+
 def point_in_box(point: tuple[int, int], box: Box) -> bool:
     x, y = point
     x1, y1, x2, y2 = box

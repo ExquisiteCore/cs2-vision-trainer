@@ -1,6 +1,7 @@
 from cs2_vision_trainer.annotation import (
     AnnotationBox,
     collect_image_paths,
+    filter_images_missing_labels,
     load_yolo_labels,
     pixel_box_to_yolo,
     point_in_box,
@@ -61,6 +62,22 @@ def test_collect_image_paths_can_filter_by_pattern(tmp_path):
         "xxx_01_error_000001.jpg",
         "xxx_01_error_000002.jpg",
     ]
+
+
+def test_filter_images_missing_labels_keeps_only_images_without_label_file(tmp_path):
+    images_dir = tmp_path / "images"
+    labels_dir = tmp_path / "labels"
+    images_dir.mkdir()
+    labels_dir.mkdir()
+    labeled = images_dir / "labeled.jpg"
+    missing = images_dir / "missing.jpg"
+    labeled.write_bytes(b"")
+    missing.write_bytes(b"")
+    (labels_dir / "labeled.txt").write_text("", encoding="utf-8")
+
+    paths = filter_images_missing_labels([labeled, missing], labels_dir)
+
+    assert paths == [missing]
 
 
 def test_point_in_box_detects_points_inside_existing_box():

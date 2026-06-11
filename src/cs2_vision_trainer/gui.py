@@ -74,6 +74,18 @@ def build_command(config: GuiConfig, action: str) -> list[str]:
             "--pattern",
             f"{config.video_path.stem}_frame_*.jpg",
         ]
+    if action == "annotate_missing":
+        return [
+            *command,
+            "annotate",
+            "--images",
+            _path_text(raw_images),
+            "--labels",
+            _path_text(raw_labels),
+            "--pattern",
+            f"{config.video_path.stem}_frame_*.jpg",
+            "--missing-only",
+        ]
     if action == "prepare":
         return [
             *command,
@@ -151,6 +163,7 @@ class TrainerGui:
         buttons = [
             ("找错题", "review"),
             ("标注新抽帧", "annotate_extracted"),
+            ("补标缺失", "annotate_missing"),
             ("标注错题", "annotate_mistakes"),
             ("标注全部", "annotate"),
             ("整理数据集", "prepare"),
