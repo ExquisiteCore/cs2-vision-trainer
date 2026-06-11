@@ -20,6 +20,26 @@ class ReviewSaveOptions:
             raise ValueError("jpeg_quality must be between 1 and 100")
 
 
+@dataclass(frozen=True)
+class ProgressBarState:
+    ratio: float
+    filled_width: int
+    label: str
+
+
+def calculate_progress_bar(*, frame_index: int, total_frames: int, width: int) -> ProgressBarState:
+    if width < 0:
+        raise ValueError("width must be greater than or equal to 0")
+    if total_frames <= 0:
+        return ProgressBarState(ratio=0.0, filled_width=0, label=f"0.0% frame {frame_index + 1}/?")
+
+    clamped_index = min(max(frame_index, 0), total_frames - 1)
+    ratio = (clamped_index + 1) / total_frames
+    filled_width = round(width * ratio)
+    label = f"{ratio * 100:.1f}% frame {clamped_index + 1}/{total_frames}"
+    return ProgressBarState(ratio=ratio, filled_width=filled_width, label=label)
+
+
 def build_review_frame_path(output_dir: Path, *, name: str) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     index = 1

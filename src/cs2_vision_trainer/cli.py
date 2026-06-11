@@ -12,7 +12,7 @@ from cs2_vision_trainer.dataset_builder import DatasetBuildOptions, build_yolo_d
 from cs2_vision_trainer.detector import UltralyticsYoloDetector
 from cs2_vision_trainer.frame_extractor import FrameExtractionOptions, extract_frames_from_video
 from cs2_vision_trainer.render import draw_detections
-from cs2_vision_trainer.review import ReviewSaveOptions, save_review_frame
+from cs2_vision_trainer.review import ReviewSaveOptions, calculate_progress_bar, save_review_frame
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -318,6 +318,40 @@ def _draw_review_help(
             cv2.LINE_AA,
         )
         y += 26
+    _draw_progress_bar(frame_bgr, frame_index=frame_index, total_frames=total_frames)
+
+
+def _draw_progress_bar(frame_bgr, *, frame_index: int, total_frames: int) -> None:
+    height, width = frame_bgr.shape[:2]
+    margin = 14
+    bar_height = 16
+    label_gap = 8
+    bar_width = max(width - margin * 2, 0)
+    state = calculate_progress_bar(frame_index=frame_index, total_frames=total_frames, width=bar_width)
+    y1 = max(height - 38, 0)
+    y2 = min(y1 + bar_height, height - 1)
+    x1 = margin
+    x2 = min(margin + bar_width, width - 1)
+    cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), (45, 45, 45), -1)
+    if state.filled_width > 0:
+        cv2.rectangle(
+            frame_bgr,
+            (x1, y1),
+            (min(x1 + state.filled_width, x2), y2),
+            (40, 220, 40),
+            -1,
+        )
+    cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), (230, 230, 230), 1)
+    cv2.putText(
+        frame_bgr,
+        state.label,
+        (x1, max(y1 - label_gap, 16)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.58,
+        (255, 255, 255),
+        2,
+        cv2.LINE_AA,
+    )
 
 
 def extract_frames(args: argparse.Namespace) -> int:
