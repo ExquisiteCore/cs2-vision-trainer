@@ -88,6 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     annotate = subparsers.add_parser("annotate", help="simple one-class YOLO image annotator")
     annotate.add_argument("--images", default="datasets/cs2_enemy/images/raw", help="image directory")
     annotate.add_argument("--labels", default="datasets/cs2_enemy/labels/raw", help="label directory")
+    annotate.add_argument("--pattern", default="*", help="image filename pattern, for example xxx_01_error_*.jpg")
     annotate.add_argument("--class-index", type=int, default=0)
     annotate.add_argument("--window", default="CS2 Annotator")
     annotate.set_defaults(func=annotate_images)
@@ -309,9 +310,9 @@ def review_video(args: argparse.Namespace) -> int:
 
 
 def annotate_images(args: argparse.Namespace) -> int:
-    image_paths = collect_image_paths(Path(args.images))
+    image_paths = collect_image_paths(Path(args.images), pattern=args.pattern)
     if not image_paths:
-        print(f"no images found: {args.images}")
+        print(f"no images found: {args.images} pattern={args.pattern}")
         return 1
 
     state = AnnotatorState(

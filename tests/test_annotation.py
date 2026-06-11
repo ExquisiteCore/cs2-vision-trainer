@@ -50,6 +50,19 @@ def test_collect_image_paths_keeps_supported_images_sorted(tmp_path):
     assert [path.name for path in paths] == ["a.png", "b.jpg"]
 
 
+def test_collect_image_paths_can_filter_by_pattern(tmp_path):
+    (tmp_path / "xxx_01_error_000001.jpg").write_bytes(b"")
+    (tmp_path / "xxx_01_error_000002.jpg").write_bytes(b"")
+    (tmp_path / "xxx_01_frame_000010.jpg").write_bytes(b"")
+
+    paths = collect_image_paths(tmp_path, pattern="xxx_01_error_*.jpg")
+
+    assert [path.name for path in paths] == [
+        "xxx_01_error_000001.jpg",
+        "xxx_01_error_000002.jpg",
+    ]
+
+
 def test_point_in_box_detects_points_inside_existing_box():
     assert point_in_box((15, 25), (10, 20, 30, 60)) is True
     assert point_in_box((5, 25), (10, 20, 30, 60)) is False

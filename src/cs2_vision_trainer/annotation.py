@@ -38,10 +38,10 @@ class AnnotatorState:
         return self.labels_dir / f"{self.current_image_path.stem}.txt"
 
 
-def collect_image_paths(images_dir: Path) -> list[Path]:
+def collect_image_paths(images_dir: Path, *, pattern: str = "*") -> list[Path]:
     if not images_dir.exists():
         raise FileNotFoundError(images_dir)
-    return sorted(path for path in images_dir.iterdir() if path.suffix.lower() in IMAGE_SUFFIXES)
+    return sorted(path for path in images_dir.glob(pattern) if path.suffix.lower() in IMAGE_SUFFIXES)
 
 
 def point_in_box(point: tuple[int, int], box: Box) -> bool:

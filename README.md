@@ -22,8 +22,9 @@ Start the lightweight GUI launcher:
 uv run --extra dev cs2-vision-trainer-gui
 ```
 
-The GUI lets you pick a video/model and launch review, annotation, dataset
-preparation, training, and video testing without typing the full commands.
+The GUI lets you pick a video/model and launch review, mistake-only annotation,
+dataset preparation, training, and video testing without typing the full
+commands.
 
 Command-line entry points are still available:
 
@@ -113,7 +114,8 @@ Or use the built-in one-class annotator instead of LabelImg:
 ```powershell
 uv run --extra dev cs2-vision-trainer annotate `
   --images datasets\cs2_enemy\images\raw `
-  --labels datasets\cs2_enemy\labels\raw
+  --labels datasets\cs2_enemy\labels\raw `
+  --pattern xxx_01_error_*.jpg
 ```
 
 Annotator controls:
