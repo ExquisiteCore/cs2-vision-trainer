@@ -22,9 +22,17 @@ Start the lightweight GUI launcher:
 uv run --extra dev cs2-vision-trainer-gui
 ```
 
-The GUI lets you pick a video/model and launch review, mistake-only annotation,
-dataset preparation, training, and video testing without typing the full
-commands.
+GUI 是中文界面。选择视频和模型后，常用按钮如下：
+
+```text
+找错题       用当前模型播放视频，保存漏检/误检画面
+标注新抽帧   只标注当前视频抽出来的 xxx_frame_*.jpg
+标注错题     只标注当前视频保存的 xxx_error_*.jpg
+标注全部     打开全部 raw 图片，平时少用
+整理数据集   重新生成 train/val
+开始训练     从当前模型继续训练
+测试视频     用当前模型检测所选视频
+```
 
 Command-line entry points are still available:
 
@@ -69,8 +77,8 @@ uv run --extra dev cs2-vision-trainer extract-frames `
   --max-frames 500
 ```
 
-In the GUI, select `videos\xxx_02.mp4`, then click `Annotate extracted` to label
-only `xxx_02_frame_*.jpg`.
+In the GUI, select `videos\xxx_02.mp4`, then click `标注新抽帧` to label only
+`xxx_02_frame_*.jpg`.
 
 Open the extracted images in a labeling tool and draw one class for the first
 model:

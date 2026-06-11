@@ -123,7 +123,7 @@ def build_command(config: GuiConfig, action: str) -> list[str]:
 class TrainerGui:
     def __init__(self) -> None:
         self.root = tk.Tk()
-        self.root.title("CS2 Vision Trainer")
+        self.root.title("CS2 视觉训练工具")
         self.root.geometry("920x620")
         self.video_var = tk.StringVar(value="videos\\xxx_01.mp4")
         self.model_var = tk.StringVar(value="runs\\detect\\train\\weights\\best.pt")
@@ -138,24 +138,24 @@ class TrainerGui:
         container = tk.Frame(self.root, padx=14, pady=14)
         container.pack(fill=tk.BOTH, expand=True)
 
-        self._row_file(container, 0, "Video", self.video_var, self._pick_video)
-        self._row_file(container, 1, "Model", self.model_var, self._pick_model)
-        self._row_file(container, 2, "Dataset", self.dataset_var, self._pick_dataset)
-        self._row_entry(container, 3, "Device", self.device_var, width=8)
-        self._row_entry(container, 4, "Epochs", self.epochs_var, width=8)
-        self._row_entry(container, 5, "Image size", self.imgsz_var, width=8)
-        self._row_entry(container, 6, "Batch", self.batch_var, width=8)
+        self._row_file(container, 0, "视频", self.video_var, self._pick_video)
+        self._row_file(container, 1, "模型", self.model_var, self._pick_model)
+        self._row_file(container, 2, "数据集", self.dataset_var, self._pick_dataset)
+        self._row_entry(container, 3, "显卡编号", self.device_var, width=8)
+        self._row_entry(container, 4, "训练轮数", self.epochs_var, width=8)
+        self._row_entry(container, 5, "图片尺寸", self.imgsz_var, width=8)
+        self._row_entry(container, 6, "批大小", self.batch_var, width=8)
 
         button_frame = tk.Frame(container)
         button_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(12, 8))
         buttons = [
-            ("Review mistakes", "review"),
-            ("Annotate extracted", "annotate_extracted"),
-            ("Annotate mistakes", "annotate_mistakes"),
-            ("Annotate all", "annotate"),
-            ("Prepare dataset", "prepare"),
-            ("Train", "train"),
-            ("Test video", "run"),
+            ("找错题", "review"),
+            ("标注新抽帧", "annotate_extracted"),
+            ("标注错题", "annotate_mistakes"),
+            ("标注全部", "annotate"),
+            ("整理数据集", "prepare"),
+            ("开始训练", "train"),
+            ("测试视频", "run"),
         ]
         for index, (label, action) in enumerate(buttons):
             tk.Button(
@@ -167,11 +167,11 @@ class TrainerGui:
 
         utility_frame = tk.Frame(container)
         utility_frame.grid(row=8, column=0, columnspan=3, sticky="ew")
-        tk.Button(utility_frame, text="Open dataset folder", command=self._open_dataset_folder).pack(
+        tk.Button(utility_frame, text="打开数据集目录", command=self._open_dataset_folder).pack(
             side=tk.LEFT,
             padx=(0, 8),
         )
-        tk.Button(utility_frame, text="Clear log", command=self._clear_log).pack(side=tk.LEFT)
+        tk.Button(utility_frame, text="清空日志", command=self._clear_log).pack(side=tk.LEFT)
 
         self.log = ScrolledText(container, height=18)
         self.log.grid(row=9, column=0, columnspan=3, sticky="nsew", pady=(12, 0))
@@ -188,7 +188,7 @@ class TrainerGui:
     ) -> None:
         tk.Label(parent, text=label, width=12, anchor="w").grid(row=row, column=0, sticky="w", pady=4)
         tk.Entry(parent, textvariable=variable).grid(row=row, column=1, sticky="ew", pady=4)
-        tk.Button(parent, text="Browse", command=command, width=10).grid(row=row, column=2, padx=(8, 0), pady=4)
+        tk.Button(parent, text="选择", command=command, width=10).grid(row=row, column=2, padx=(8, 0), pady=4)
 
     def _row_entry(
         self,
@@ -204,22 +204,22 @@ class TrainerGui:
 
     def _pick_video(self) -> None:
         path = filedialog.askopenfilename(
-            title="Select video",
-            filetypes=[("Videos", "*.mp4 *.avi *.mkv"), ("All files", "*.*")],
+            title="选择视频",
+            filetypes=[("视频文件", "*.mp4 *.avi *.mkv"), ("所有文件", "*.*")],
         )
         if path:
             self.video_var.set(path)
 
     def _pick_model(self) -> None:
         path = filedialog.askopenfilename(
-            title="Select model",
-            filetypes=[("YOLO models", "*.pt *.onnx *.engine"), ("All files", "*.*")],
+            title="选择模型",
+            filetypes=[("YOLO 模型", "*.pt *.onnx *.engine"), ("所有文件", "*.*")],
         )
         if path:
             self.model_var.set(path)
 
     def _pick_dataset(self) -> None:
-        path = filedialog.askdirectory(title="Select dataset root")
+        path = filedialog.askdirectory(title="选择数据集目录")
         if path:
             self.dataset_var.set(path)
 
@@ -238,7 +238,7 @@ class TrainerGui:
         try:
             command = build_command(self._config(), action)
         except Exception as exc:
-            self._append_log(f"Config error: {exc}\n")
+            self._append_log(f"配置错误：{exc}\n")
             return
         self._append_log(f"\n> {' '.join(command)}\n")
         thread = threading.Thread(target=self._run_process, args=(command,), daemon=True)
@@ -255,13 +255,13 @@ class TrainerGui:
                 errors="replace",
             )
         except Exception as exc:
-            self._append_log(f"Failed to start: {exc}\n")
+            self._append_log(f"启动失败：{exc}\n")
             return
         assert process.stdout is not None
         for line in process.stdout:
             self._append_log(line)
         code = process.wait()
-        self._append_log(f"[exit {code}]\n")
+        self._append_log(f"[退出码 {code}]\n")
 
     def _open_dataset_folder(self) -> None:
         path = Path(self.dataset_var.get())
