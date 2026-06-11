@@ -8,6 +8,7 @@ import cv2
 
 from cs2_vision_trainer.capture import open_frame_source
 from cs2_vision_trainer.config import RuntimeConfig
+from cs2_vision_trainer.dataset_builder import DatasetBuildOptions, build_yolo_dataset
 from cs2_vision_trainer.detector import UltralyticsYoloDetector
 from cs2_vision_trainer.frame_extractor import FrameExtractionOptions, extract_frames_from_video
 from cs2_vision_trainer.render import draw_detections
@@ -69,6 +70,14 @@ def build_parser() -> argparse.ArgumentParser:
     extract.add_argument("--max-frames", type=int, default=None, help="optional saved-frame limit")
     extract.add_argument("--jpeg-quality", type=int, default=95, help="jpeg quality from 1 to 100")
     extract.set_defaults(func=extract_frames)
+
+    prepare = subparsers.add_parser("prepare-dataset", help="split raw labels into train/val YOLO data")
+    prepare.add_argument("--root", default="datasets/cs2_enemy", help="dataset root")
+    prepare.add_argument("--val-ratio", type=float, default=0.2)
+    prepare.add_argument("--seed", type=int, default=7)
+    prepare.add_argument("--empty-limit", type=int, default=10, help="maximum empty labels to keep")
+    prepare.add_argument("--no-empty", action="store_true", help="drop empty labels")
+    prepare.set_defaults(func=prepare_dataset)
 
     return parser
 
@@ -197,6 +206,29 @@ def extract_frames(args: argparse.Namespace) -> int:
         f"read_frames={summary.read_frames} "
         f"saved_frames={summary.saved_frames} "
         f"output_dir={summary.output_dir}"
+    )
+    return 0
+
+
+def prepare_dataset(args: argparse.Namespace) -> int:
+    root = Path(args.root)
+    summary = build_yolo_dataset(
+        raw_images_dir=root / "images" / "raw",
+        raw_labels_dir=root / "labels" / "raw",
+        output_root=root,
+        options=DatasetBuildOptions(
+            val_ratio=args.val_ratio,
+            seed=args.seed,
+            include_empty=not args.no_empty,
+            empty_limit=args.empty_limit,
+        ),
+    )
+    print(
+        f"total={summary.total_examples} "
+        f"train={summary.train_examples} "
+        f"val={summary.val_examples} "
+        f"empty={summary.empty_examples} "
+        f"yaml={summary.dataset_yaml}"
     )
     return 0
 

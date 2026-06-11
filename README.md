@@ -40,3 +40,21 @@ model:
 ```text
 enemy
 ```
+
+After labeling, build the train/validation split:
+
+```powershell
+uv run --extra dev cs2-vision-trainer prepare-dataset --root datasets\cs2_enemy
+```
+
+Then train:
+
+```powershell
+uv run --extra dev cs2-vision-trainer train `
+  --data datasets\cs2_enemy\dataset.yaml `
+  --model yolov8n.pt `
+  --epochs 50 `
+  --imgsz 640 `
+  --batch 8 `
+  --device 0
+```

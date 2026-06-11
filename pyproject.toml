@@ -7,6 +7,8 @@ requires-python = ">=3.11"
 dependencies = [
     "numpy>=1.26",
     "opencv-python>=4.10",
+    "torch>=2.11",
+    "torchvision>=0.26",
     "ultralytics>=8.3",
     "mss>=10.0",
     "pyyaml>=6.0",
@@ -33,3 +35,12 @@ packages = ["src/cs2_vision_trainer"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
