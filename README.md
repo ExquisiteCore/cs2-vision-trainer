@@ -24,11 +24,23 @@ uv run cs2-vision-trainer run --model path\to\model.pt --source screen
 
 Press `q` to quit. Press `s` to save the current frame into `runs/samples`.
 
+## Project Folders
+
+```text
+videos\                         source gameplay videos
+datasets\cs2_enemy\images\raw   images waiting for LabelImg labeling
+datasets\cs2_enemy\labels\raw   LabelImg YOLO label files
+datasets\cs2_enemy\images\train generated training split
+datasets\cs2_enemy\images\val   generated validation split
+runs\detect\train\weights       trained model output
+models\base                     downloaded base YOLO weights
+```
+
 ## Build A First Dataset From A Video
 
 ```powershell
 uv run --extra dev cs2-vision-trainer extract-frames `
-  --video test.mp4 `
+  --video videos\xxx_01.mp4 `
   --output datasets\cs2_enemy\images\raw `
   --stride 15 `
   --max-frames 300
@@ -52,8 +64,52 @@ Then train:
 ```powershell
 uv run --extra dev cs2-vision-trainer train `
   --data datasets\cs2_enemy\dataset.yaml `
-  --model yolov8n.pt `
+  --model models\base\yolov8n.pt `
   --epochs 50 `
+  --imgsz 640 `
+  --batch 8 `
+  --device 0
+```
+
+## Review Model Mistakes
+
+Use review mode to pause a video, step through frames, and save mistake frames
+directly into the raw training-image folder for relabeling:
+
+```powershell
+uv run --extra dev cs2-vision-trainer review `
+  --model runs\detect\train\weights\best.pt `
+  --video videos\xxx_01.mp4 `
+  --name xxx_01 `
+  --device 0
+```
+
+Controls:
+
+```text
+Space  play or pause
+S      save current frame as a mistake image
+A/D    previous or next frame
+B/F    jump back or forward 30 frames
+Q      quit
+```
+
+After saving mistake frames, open LabelImg again and label only the new
+`xxx_01_error_*.jpg` files in `datasets\cs2_enemy\images\raw`.
+
+Then rebuild the dataset and continue training from the current best model:
+
+```powershell
+uv run --extra dev cs2-vision-trainer prepare-dataset `
+  --root datasets\cs2_enemy `
+  --val-ratio 0.2 `
+  --empty-limit 100 `
+  --seed 7
+
+uv run --extra dev cs2-vision-trainer train `
+  --data datasets\cs2_enemy\dataset.yaml `
+  --model runs\detect\train\weights\best.pt `
+  --epochs 40 `
   --imgsz 640 `
   --batch 8 `
   --device 0
