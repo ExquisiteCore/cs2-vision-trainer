@@ -9,6 +9,7 @@ import cv2
 from cs2_vision_trainer.capture import open_frame_source
 from cs2_vision_trainer.config import RuntimeConfig
 from cs2_vision_trainer.detector import UltralyticsYoloDetector
+from cs2_vision_trainer.frame_extractor import FrameExtractionOptions, extract_frames_from_video
 from cs2_vision_trainer.render import draw_detections
 
 
@@ -56,6 +57,18 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--monitor", type=int, default=1)
     benchmark.add_argument("--device", default=None)
     benchmark.set_defaults(func=benchmark_model)
+
+    extract = subparsers.add_parser("extract-frames", help="extract training images from a video")
+    extract.add_argument("--video", required=True, help="input video path")
+    extract.add_argument(
+        "--output",
+        default="datasets/cs2_enemy/images/raw",
+        help="directory for extracted jpg frames",
+    )
+    extract.add_argument("--stride", type=int, default=15, help="save every Nth frame")
+    extract.add_argument("--max-frames", type=int, default=None, help="optional saved-frame limit")
+    extract.add_argument("--jpeg-quality", type=int, default=95, help="jpeg quality from 1 to 100")
+    extract.set_defaults(func=extract_frames)
 
     return parser
 
@@ -167,6 +180,24 @@ def benchmark_model(args: argparse.Namespace) -> int:
         return 1
     average = sum(costs) / len(costs)
     print(f"frames={len(costs)} avg_inference_ms={average:.2f} fps={1000 / average:.1f}")
+    return 0
+
+
+def extract_frames(args: argparse.Namespace) -> int:
+    summary = extract_frames_from_video(
+        args.video,
+        output_dir=args.output,
+        options=FrameExtractionOptions(
+            stride=args.stride,
+            max_frames=args.max_frames,
+            jpeg_quality=args.jpeg_quality,
+        ),
+    )
+    print(
+        f"read_frames={summary.read_frames} "
+        f"saved_frames={summary.saved_frames} "
+        f"output_dir={summary.output_dir}"
+    )
     return 0
 
 

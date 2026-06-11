@@ -23,3 +23,20 @@ uv run cs2-vision-trainer run --model path\to\model.pt --source screen
 ```
 
 Press `q` to quit. Press `s` to save the current frame into `runs/samples`.
+
+## Build A First Dataset From A Video
+
+```powershell
+uv run --extra dev cs2-vision-trainer extract-frames `
+  --video test.mp4 `
+  --output datasets\cs2_enemy\images\raw `
+  --stride 15 `
+  --max-frames 300
+```
+
+Open the extracted images in a labeling tool and draw one class for the first
+model:
+
+```text
+enemy
+```
