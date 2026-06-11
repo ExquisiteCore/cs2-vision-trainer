@@ -16,6 +16,17 @@ OpenCV window.
 
 ## Quick Start
 
+Start the lightweight GUI launcher:
+
+```powershell
+uv run --extra dev cs2-vision-trainer-gui
+```
+
+The GUI lets you pick a video/model and launch review, annotation, dataset
+preparation, training, and video testing without typing the full commands.
+
+Command-line entry points are still available:
+
 ```powershell
 uv run pytest
 uv run cs2-vision-trainer run --model path\to\model.pt --source path\to\video.mp4

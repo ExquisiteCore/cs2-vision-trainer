@@ -24,6 +24,7 @@ accel = [
 
 [project.scripts]
 cs2-vision-trainer = "cs2_vision_trainer.cli:main"
+cs2-vision-trainer-gui = "cs2_vision_trainer.gui:main"
 
 [build-system]
 requires = ["hatchling"]
