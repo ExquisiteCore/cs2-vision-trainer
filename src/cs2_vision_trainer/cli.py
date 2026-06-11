@@ -51,6 +51,9 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--imgsz", type=int, default=640)
     train.add_argument("--batch", type=int, default=16)
     train.add_argument("--device", default=None)
+    train.add_argument("--workers", type=int, default=4, help="training dataloader workers")
+    train.add_argument("--cache", default=False, action="store_true", help="cache images during training")
+    train.add_argument("--patience", type=int, default=50, help="early stopping patience")
     train.set_defaults(func=train_model)
 
     export = subparsers.add_parser("export", help="export a YOLO model for acceleration")
@@ -179,6 +182,9 @@ def train_model(args: argparse.Namespace) -> int:
         "epochs": args.epochs,
         "imgsz": args.imgsz,
         "batch": args.batch,
+        "workers": args.workers,
+        "cache": args.cache,
+        "patience": args.patience,
     }
     if args.device:
         kwargs["device"] = args.device
