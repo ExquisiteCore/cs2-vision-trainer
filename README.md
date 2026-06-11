@@ -97,6 +97,26 @@ Q      quit
 After saving mistake frames, open LabelImg again and label only the new
 `xxx_01_error_*.jpg` files in `datasets\cs2_enemy\images\raw`.
 
+Or use the built-in one-class annotator instead of LabelImg:
+
+```powershell
+uv run --extra dev cs2-vision-trainer annotate `
+  --images datasets\cs2_enemy\images\raw `
+  --labels datasets\cs2_enemy\labels\raw
+```
+
+Annotator controls:
+
+```text
+Left drag   draw an enemy box
+Right click delete the clicked box
+S           save current label file
+A/D         previous or next image
+Space       save and go to next image
+X           clear all boxes on current image
+Q           save current image if needed, then quit
+```
+
 Then rebuild the dataset and continue training from the current best model:
 
 ```powershell

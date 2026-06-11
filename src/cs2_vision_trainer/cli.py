@@ -6,6 +6,16 @@ from pathlib import Path
 
 import cv2
 
+from cs2_vision_trainer.annotation import (
+    AnnotationBox,
+    AnnotatorState,
+    collect_image_paths,
+    draw_annotation_overlay,
+    load_current_boxes,
+    normalize_box,
+    point_in_box,
+    save_current_boxes,
+)
 from cs2_vision_trainer.capture import open_frame_source
 from cs2_vision_trainer.config import RuntimeConfig
 from cs2_vision_trainer.dataset_builder import DatasetBuildOptions, build_yolo_dataset
@@ -74,6 +84,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     review.add_argument("--window", default="CS2 Review", help="OpenCV window title")
     review.set_defaults(func=review_video)
+
+    annotate = subparsers.add_parser("annotate", help="simple one-class YOLO image annotator")
+    annotate.add_argument("--images", default="datasets/cs2_enemy/images/raw", help="image directory")
+    annotate.add_argument("--labels", default="datasets/cs2_enemy/labels/raw", help="label directory")
+    annotate.add_argument("--class-index", type=int, default=0)
+    annotate.add_argument("--window", default="CS2 Annotator")
+    annotate.set_defaults(func=annotate_images)
 
     extract = subparsers.add_parser("extract-frames", help="extract training images from a video")
     extract.add_argument("--video", required=True, help="input video path")
@@ -289,6 +306,107 @@ def review_video(args: argparse.Namespace) -> int:
         cv2.destroyWindow(args.window)
     print(f"saved_count={saved_count} output={save_options.output_dir}")
     return 0
+
+
+def annotate_images(args: argparse.Namespace) -> int:
+    image_paths = collect_image_paths(Path(args.images))
+    if not image_paths:
+        print(f"no images found: {args.images}")
+        return 1
+
+    state = AnnotatorState(
+        image_paths=image_paths,
+        labels_dir=Path(args.labels),
+        class_index=args.class_index,
+    )
+    cv2.namedWindow(args.window, cv2.WINDOW_NORMAL)
+    cv2.setMouseCallback(args.window, _handle_annotator_mouse, state)
+    try:
+        while True:
+            image = cv2.imread(str(state.current_image_path))
+            if image is None:
+                print(f"failed to read image: {state.current_image_path}")
+                return 1
+            image_height, image_width = image.shape[:2]
+            if state.boxes is None:
+                load_current_boxes(state, image_width=image_width, image_height=image_height)
+            output = draw_annotation_overlay(
+                image,
+                state=state,
+                image_width=image_width,
+                image_height=image_height,
+            )
+            cv2.imshow(args.window, output)
+            key = cv2.waitKey(30) & 0xFF
+            if key in (ord("q"), 27):
+                if state.dirty:
+                    save_current_boxes(state, image_width=image_width, image_height=image_height)
+                    print(f"saved {state.current_label_path}")
+                break
+            if key in (ord("s"), ord("S")):
+                save_current_boxes(state, image_width=image_width, image_height=image_height)
+                print(f"saved {state.current_label_path}")
+                continue
+            if key in (ord("d"), ord("D"), ord(" "), 83):
+                if state.dirty:
+                    save_current_boxes(state, image_width=image_width, image_height=image_height)
+                    print(f"saved {state.current_label_path}")
+                _move_annotator(state, 1)
+                continue
+            if key in (ord("a"), ord("A"), 81):
+                if state.dirty:
+                    save_current_boxes(state, image_width=image_width, image_height=image_height)
+                    print(f"saved {state.current_label_path}")
+                _move_annotator(state, -1)
+                continue
+            if key in (ord("x"), ord("X")):
+                state.boxes = []
+                state.dirty = True
+                continue
+    finally:
+        cv2.destroyWindow(args.window)
+    return 0
+
+
+def _move_annotator(state: AnnotatorState, delta: int) -> None:
+    state.current_index = min(max(state.current_index + delta, 0), len(state.image_paths) - 1)
+    state.boxes = None
+    state.drawing_start = None
+    state.drawing_current = None
+    state.dirty = False
+
+
+def _handle_annotator_mouse(event: int, x: int, y: int, _flags: int, state: AnnotatorState) -> None:
+    if state.boxes is None:
+        return
+    if event == cv2.EVENT_LBUTTONDOWN:
+        state.drawing_start = (x, y)
+        state.drawing_current = (x, y)
+        return
+    if event == cv2.EVENT_MOUSEMOVE and state.drawing_start:
+        state.drawing_current = (x, y)
+        return
+    if event == cv2.EVENT_LBUTTONUP and state.drawing_start:
+        image = cv2.imread(str(state.current_image_path))
+        if image is None:
+            state.drawing_start = None
+            state.drawing_current = None
+            return
+        image_height, image_width = image.shape[:2]
+        x1, y1 = state.drawing_start
+        box = normalize_box((x1, y1, x, y), image_width=image_width, image_height=image_height)
+        state.drawing_start = None
+        state.drawing_current = None
+        if box[2] - box[0] >= 3 and box[3] - box[1] >= 3:
+            state.boxes.append(AnnotationBox(class_index=state.class_index, xyxy=box))
+            state.dirty = True
+        return
+    if event == cv2.EVENT_RBUTTONDOWN:
+        for index in range(len(state.boxes) - 1, -1, -1):
+            if point_in_box((x, y), state.boxes[index].xyxy):
+                del state.boxes[index]
+                state.dirty = True
+                break
 
 
 def _draw_review_help(
