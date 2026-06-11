@@ -63,6 +63,17 @@ def build_command(config: GuiConfig, action: str) -> list[str]:
             "--pattern",
             f"{config.video_path.stem}_error_*.jpg",
         ]
+    if action == "annotate_extracted":
+        return [
+            *command,
+            "annotate",
+            "--images",
+            _path_text(raw_images),
+            "--labels",
+            _path_text(raw_labels),
+            "--pattern",
+            f"{config.video_path.stem}_frame_*.jpg",
+        ]
     if action == "prepare":
         return [
             *command,
@@ -139,6 +150,7 @@ class TrainerGui:
         button_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(12, 8))
         buttons = [
             ("Review mistakes", "review"),
+            ("Annotate extracted", "annotate_extracted"),
             ("Annotate mistakes", "annotate_mistakes"),
             ("Annotate all", "annotate"),
             ("Prepare dataset", "prepare"),

@@ -58,6 +58,20 @@ uv run --extra dev cs2-vision-trainer extract-frames `
   --max-frames 300
 ```
 
+For a new video, keep the video name unique and then extract frames with the
+same stem:
+
+```powershell
+uv run --extra dev cs2-vision-trainer extract-frames `
+  --video videos\xxx_02.mp4 `
+  --output datasets\cs2_enemy\images\raw `
+  --stride 10 `
+  --max-frames 500
+```
+
+In the GUI, select `videos\xxx_02.mp4`, then click `Annotate extracted` to label
+only `xxx_02_frame_*.jpg`.
+
 Open the extracted images in a labeling tool and draw one class for the first
 model:
 

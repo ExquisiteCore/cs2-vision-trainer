@@ -75,3 +75,25 @@ def test_build_command_for_annotate_mistakes_filters_current_video_errors():
         "--pattern",
         "xxx_01_error_*.jpg",
     ]
+
+
+def test_build_command_for_annotate_extracted_filters_current_video_frames():
+    config = GuiConfig(
+        video_path=Path("videos/xxx_02.mp4"),
+        model_path=Path("runs/detect/train-2/weights/best.pt"),
+        dataset_root=Path("datasets/cs2_enemy"),
+        device="0",
+    )
+
+    command = build_command(config, "annotate_extracted")
+
+    assert command == [
+        "cs2-vision-trainer",
+        "annotate",
+        "--images",
+        "datasets\\cs2_enemy\\images\\raw",
+        "--labels",
+        "datasets\\cs2_enemy\\labels\\raw",
+        "--pattern",
+        "xxx_02_frame_*.jpg",
+    ]
