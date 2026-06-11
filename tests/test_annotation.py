@@ -1,11 +1,13 @@
 from cs2_vision_trainer.annotation import (
     AnnotationBox,
+    AnnotatorState,
     collect_image_paths,
     filter_images_missing_labels,
     load_yolo_labels,
     pixel_box_to_yolo,
     point_in_box,
     save_yolo_labels,
+    save_current_boxes,
     yolo_to_pixel_box,
 )
 
@@ -39,6 +41,18 @@ def test_save_yolo_labels_can_write_empty_label_file(tmp_path):
 
     assert label_path.exists()
     assert label_path.read_text(encoding="utf-8") == ""
+
+
+def test_save_current_boxes_writes_empty_label_for_background_image(tmp_path):
+    image_path = tmp_path / "background.jpg"
+    labels_dir = tmp_path / "labels"
+    image_path.write_bytes(b"")
+    state = AnnotatorState(image_paths=[image_path], labels_dir=labels_dir, boxes=[])
+
+    save_current_boxes(state, image_width=100, image_height=100)
+
+    assert (labels_dir / "background.txt").exists()
+    assert (labels_dir / "background.txt").read_text(encoding="utf-8") == ""
 
 
 def test_collect_image_paths_keeps_supported_images_sorted(tmp_path):

@@ -203,10 +203,10 @@ def draw_annotation_overlay(
 
 def _draw_annotation_help(output: np.ndarray, *, state: AnnotatorState) -> None:
     height, _ = output.shape[:2]
-    status = "dirty" if state.dirty else "saved"
+    status = "未保存" if state.dirty else "已保存"
     lines = [
         f"{state.current_index + 1}/{len(state.image_paths)} {state.current_image_path.name} {status}",
-        "Left drag box | Right click delete | S save | A/D prev/next | Space next | Q quit",
+        "左键拖框=敌人 | 右键删框 | 空格/下一张=保存 | 没人直接空格 | Q退出",
     ]
     y = 28
     for line in lines:
@@ -223,7 +223,7 @@ def _draw_annotation_help(output: np.ndarray, *, state: AnnotatorState) -> None:
         y += 26
     cv2.putText(
         output,
-        "Labels are saved as YOLO txt files.",
+        "空画面会保存为空标签，用来告诉模型这里没有敌人。",
         (12, max(height - 16, 16)),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.58,

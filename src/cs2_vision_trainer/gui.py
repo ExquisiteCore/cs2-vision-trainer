@@ -163,9 +163,9 @@ class TrainerGui:
         buttons = [
             ("找错题", "review"),
             ("标注新抽帧", "annotate_extracted"),
-            ("补标缺失", "annotate_missing"),
             ("标注错题", "annotate_mistakes"),
             ("标注全部", "annotate"),
+            ("补标缺失", "annotate_missing"),
             ("整理数据集", "prepare"),
             ("开始训练", "train"),
             ("测试视频", "run"),

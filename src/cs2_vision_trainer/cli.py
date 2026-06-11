@@ -344,24 +344,21 @@ def annotate_images(args: argparse.Namespace) -> int:
             cv2.imshow(args.window, output)
             key = cv2.waitKey(30) & 0xFF
             if key in (ord("q"), 27):
-                if state.dirty:
-                    save_current_boxes(state, image_width=image_width, image_height=image_height)
-                    print(f"saved {state.current_label_path}")
+                save_current_boxes(state, image_width=image_width, image_height=image_height)
+                print(f"saved {state.current_label_path}")
                 break
             if key in (ord("s"), ord("S")):
                 save_current_boxes(state, image_width=image_width, image_height=image_height)
                 print(f"saved {state.current_label_path}")
                 continue
             if key in (ord("d"), ord("D"), ord(" "), 83):
-                if state.dirty:
-                    save_current_boxes(state, image_width=image_width, image_height=image_height)
-                    print(f"saved {state.current_label_path}")
+                save_current_boxes(state, image_width=image_width, image_height=image_height)
+                print(f"saved {state.current_label_path}")
                 _move_annotator(state, 1)
                 continue
             if key in (ord("a"), ord("A"), 81):
-                if state.dirty:
-                    save_current_boxes(state, image_width=image_width, image_height=image_height)
-                    print(f"saved {state.current_label_path}")
+                save_current_boxes(state, image_width=image_width, image_height=image_height)
+                print(f"saved {state.current_label_path}")
                 _move_annotator(state, -1)
                 continue
             if key in (ord("x"), ord("X")):
