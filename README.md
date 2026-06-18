@@ -1,6 +1,7 @@
 # CS2 Vision Trainer
 
-Read-only YOLO + OpenCV vision analyzer for CS2 training-range experiments.
+Read-only YOLO + OpenCV vision trainer for CS2 CT/T body/head detection
+experiments.
 
 This project is intentionally limited to visual analysis:
 
@@ -10,9 +11,18 @@ This project is intentionally limited to visual analysis:
 - no in-game overlay
 - no anti-cheat bypass behavior
 
-The first milestone is a real-time detector window that can read from a video
-file, webcam, or screen capture and draw YOLO detections in an independent
-OpenCV window.
+The current dataset target is four classes:
+
+```text
+0 ct_body
+1 ct_head
+2 t_body
+3 t_head
+```
+
+Body and head boxes should both be labeled when visible. Enemy/teammate status
+is derived later from the player's current side, so the dataset itself stays
+side-based. Empty frames are saved as empty label files.
 
 ## Quick Start
 
@@ -35,6 +45,9 @@ GUI 是中文界面。选择视频和模型后，常用按钮如下：
 测试视频     用当前模型检测所选视频
 ```
 
+In the GUI, set `己方阵营` to `ct` or `t` before testing if you want the video
+view to show only enemies. Keep it as `unknown` to show both sides.
+
 Command-line entry points are still available:
 
 ```powershell
@@ -49,10 +62,10 @@ Press `q` to quit. Press `s` to save the current frame into `runs/samples`.
 
 ```text
 videos\                         source gameplay videos
-datasets\cs2_enemy\images\raw   images waiting for LabelImg labeling
-datasets\cs2_enemy\labels\raw   LabelImg YOLO label files
-datasets\cs2_enemy\images\train generated training split
-datasets\cs2_enemy\images\val   generated validation split
+datasets\cs2_multiclass\images\raw   images waiting for labeling
+datasets\cs2_multiclass\labels\raw   YOLO label files
+datasets\cs2_multiclass\images\train generated training split
+datasets\cs2_multiclass\images\val   generated validation split
 runs\detect\train\weights       trained model output
 models\base                     downloaded base YOLO weights
 ```
@@ -62,9 +75,10 @@ models\base                     downloaded base YOLO weights
 ```powershell
 uv run --extra dev cs2-vision-trainer extract-frames `
   --video videos\xxx_01.mp4 `
-  --output datasets\cs2_enemy\images\raw `
+  --output datasets\cs2_multiclass\images\raw `
+  --start-time 160 `
   --stride 15 `
-  --max-frames 300
+  --max-frames 5000
 ```
 
 For a new video, keep the video name unique and then extract frames with the
@@ -73,32 +87,36 @@ same stem:
 ```powershell
 uv run --extra dev cs2-vision-trainer extract-frames `
   --video videos\xxx_02.mp4 `
-  --output datasets\cs2_enemy\images\raw `
+  --output datasets\cs2_multiclass\images\raw `
+  --start-time 160 `
   --stride 10 `
-  --max-frames 500
+  --max-frames 5000
 ```
 
 In the GUI, select `videos\xxx_02.mp4`, then click `标注新抽帧` to label only
 `xxx_02_frame_*.jpg`.
 
-Open the extracted images in a labeling tool and draw one class for the first
-model:
+Use the built-in annotator and switch classes with number keys:
 
 ```text
-enemy
+1 ct_body
+2 ct_head
+3 t_body
+4 t_head
 ```
 
-After labeling, build the train/validation split:
+After labeling, validate and build the train/validation split:
 
 ```powershell
-uv run --extra dev cs2-vision-trainer prepare-dataset --root datasets\cs2_enemy
+uv run --extra dev cs2-vision-trainer validate-dataset --root datasets\cs2_multiclass
+uv run --extra dev cs2-vision-trainer prepare-dataset --root datasets\cs2_multiclass
 ```
 
 Then train:
 
 ```powershell
 uv run --extra dev cs2-vision-trainer train `
-  --data datasets\cs2_enemy\dataset.yaml `
+  --data datasets\cs2_multiclass\dataset.yaml `
   --model models\base\yolov8n.pt `
   --epochs 50 `
   --imgsz 640 `
@@ -119,6 +137,9 @@ uv run --extra dev cs2-vision-trainer review `
   --device 0
 ```
 
+To review only enemies from CT perspective, add `--labels t_body t_head`. From
+T perspective, add `--labels ct_body ct_head`.
+
 Controls:
 
 ```text
@@ -130,21 +151,22 @@ Q      quit
 ```
 
 After saving mistake frames, open LabelImg again and label only the new
-`xxx_01_error_*.jpg` files in `datasets\cs2_enemy\images\raw`.
+`xxx_01_error_*.jpg` files in `datasets\cs2_multiclass\images\raw`.
 
-Or use the built-in one-class annotator instead of LabelImg:
+Or use the built-in multiclass annotator:
 
 ```powershell
 uv run --extra dev cs2-vision-trainer annotate `
-  --images datasets\cs2_enemy\images\raw `
-  --labels datasets\cs2_enemy\labels\raw `
+  --images datasets\cs2_multiclass\images\raw `
+  --labels datasets\cs2_multiclass\labels\raw `
   --pattern xxx_01_error_*.jpg
 ```
 
 Annotator controls:
 
 ```text
-Left drag   draw an enemy box
+1-4         switch class
+Left drag   draw a box for the active class
 Right click delete the clicked box
 S           save current label file
 A/D         previous or next image
@@ -157,13 +179,13 @@ Then rebuild the dataset and continue training from the current best model:
 
 ```powershell
 uv run --extra dev cs2-vision-trainer prepare-dataset `
-  --root datasets\cs2_enemy `
+  --root datasets\cs2_multiclass `
   --val-ratio 0.2 `
   --empty-limit 100 `
   --seed 7
 
 uv run --extra dev cs2-vision-trainer train `
-  --data datasets\cs2_enemy\dataset.yaml `
+  --data datasets\cs2_multiclass\dataset.yaml `
   --model runs\detect\train\weights\best.pt `
   --epochs 40 `
   --imgsz 640 `

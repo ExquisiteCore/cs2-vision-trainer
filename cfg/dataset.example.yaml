@@ -1,7 +1,10 @@
-# Copy this file and update the paths for your labeled training-range dataset.
-path: D:/datasets/cs2-training-range
+# Copy this file and update the paths for your labeled CS2 dataset.
+path: D:/datasets/cs2-multiclass
 train: images/train
 val: images/val
 
 names:
-  0: enemy
+  0: ct_body
+  1: ct_head
+  2: t_body
+  3: t_head

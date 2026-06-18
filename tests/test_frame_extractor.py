@@ -63,3 +63,30 @@ def test_extract_frames_from_source_respects_max_frames_and_releases_source(tmp_
         "test_frame_000002.jpg",
         "test_frame_000004.jpg",
     ]
+
+
+def test_extract_frames_from_video_passes_start_time_to_video_source(tmp_path, monkeypatch):
+    video_path = tmp_path / "video.mp4"
+    video_path.write_bytes(b"fake")
+    captured = {}
+
+    class FakeVideoFrameSource(FakeFrameSource):
+        def __init__(self, path, *, start_time_seconds=0):
+            super().__init__(count=1)
+            captured["path"] = path
+            captured["start_time_seconds"] = start_time_seconds
+
+    monkeypatch.setattr(
+        "cs2_vision_trainer.dataset.extractor.VideoFrameSource",
+        FakeVideoFrameSource,
+    )
+
+    from cs2_vision_trainer.frame_extractor import extract_frames_from_video
+
+    extract_frames_from_video(
+        video_path,
+        output_dir=tmp_path / "frames",
+        options=FrameExtractionOptions(stride=1, start_time_seconds=160),
+    )
+
+    assert captured == {"path": video_path, "start_time_seconds": 160}

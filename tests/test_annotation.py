@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from cs2_vision_trainer.annotation import (
     AnnotationBox,
     AnnotatorState,
@@ -10,6 +12,7 @@ from cs2_vision_trainer.annotation import (
     save_current_boxes,
     yolo_to_pixel_box,
 )
+from cs2_vision_trainer.dataset.schema import DEFAULT_CLASS_NAMES
 
 
 def test_pixel_box_to_yolo_normalizes_center_and_size():
@@ -53,6 +56,13 @@ def test_save_current_boxes_writes_empty_label_for_background_image(tmp_path):
 
     assert (labels_dir / "background.txt").exists()
     assert (labels_dir / "background.txt").read_text(encoding="utf-8") == ""
+
+
+def test_annotator_state_defaults_to_multiclass_names():
+    state = AnnotatorState(image_paths=[], labels_dir=Path("labels"))
+
+    assert state.class_names == DEFAULT_CLASS_NAMES
+    assert state.current_class_name == "ct_body"
 
 
 def test_collect_image_paths_keeps_supported_images_sorted(tmp_path):
