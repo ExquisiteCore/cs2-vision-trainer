@@ -4,6 +4,7 @@ from cs2_vision_trainer.gui import (
     DEFAULT_GUI_CONFIG,
     WORKFLOW_SECTIONS,
     GuiConfig,
+    TrainerGui,
     build_command,
     enemy_labels_for_player_side,
 )
@@ -249,3 +250,36 @@ def test_build_command_for_run_keeps_all_teams_when_player_side_is_unknown():
         "--device",
         "0",
     ]
+
+
+def test_run_process_resets_status_on_start_failure_through_ui_queue(monkeypatch):
+    class FakeRoot:
+        def __init__(self) -> None:
+            self.after_calls: list[tuple[int, str, tuple[str, ...]]] = []
+
+        def after(self, delay: int, callback, *args):
+            self.after_calls.append((delay, callback.__name__, args))
+            callback(*args)
+
+    class FakeStatus:
+        def __init__(self) -> None:
+            self.values: list[str] = []
+
+        def set(self, value: str) -> None:
+            self.values.append(value)
+
+    def fail_popen(*_args, **_kwargs):
+        raise OSError("missing executable")
+
+    gui = object.__new__(TrainerGui)
+    gui.root = FakeRoot()
+    gui.status_var = FakeStatus()
+    logs: list[str] = []
+    gui._append_log = logs.append
+    monkeypatch.setattr("cs2_vision_trainer.app.gui.subprocess.Popen", fail_popen)
+
+    gui._run_process(["missing-command"])
+
+    assert gui.status_var.values == ["空闲"]
+    assert gui.root.after_calls == [(0, "set", ("空闲",))]
+    assert any("启动失败" in line for line in logs)

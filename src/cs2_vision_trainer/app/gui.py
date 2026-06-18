@@ -509,13 +509,14 @@ class TrainerGui:
             )
         except Exception as exc:
             self._append_log(f"启动失败：{exc}\n")
+            self._set_status("空闲")
             return
         assert process.stdout is not None
         for line in process.stdout:
             self._append_log(line)
         code = process.wait()
         self._append_log(f"[退出码 {code}]\n")
-        self.status_var.set("空闲")
+        self._set_status("空闲")
 
     def _open_dataset_folder(self) -> None:
         path = Path(self.dataset_var.get())
@@ -530,6 +531,9 @@ class TrainerGui:
 
     def _append_log(self, text: str) -> None:
         self.root.after(0, self._append_log_on_ui, text)
+
+    def _set_status(self, text: str) -> None:
+        self.root.after(0, self.status_var.set, text)
 
     def _append_log_on_ui(self, text: str) -> None:
         self.log.insert(tk.END, text)

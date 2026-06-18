@@ -35,11 +35,35 @@ def validate_yolo_dataset(
     class_names: tuple[str, ...] = DEFAULT_CLASS_NAMES,
 ) -> DatasetValidationSummary:
     names = normalize_class_names(class_names)
+    issues: list[DatasetValidationIssue] = []
+    if not raw_images_dir.exists():
+        issues.append(
+            DatasetValidationIssue(
+                code="missing_images_dir",
+                path=raw_images_dir,
+                message=f"raw image directory does not exist: {raw_images_dir}",
+            )
+        )
+    if not raw_labels_dir.exists():
+        issues.append(
+            DatasetValidationIssue(
+                code="missing_labels_dir",
+                path=raw_labels_dir,
+                message=f"raw label directory does not exist: {raw_labels_dir}",
+            )
+        )
+    if issues:
+        return DatasetValidationSummary(
+            image_count=0,
+            label_count=0,
+            box_count=0,
+            issues=issues,
+        )
+
     images = sorted(path for path in raw_images_dir.glob("*") if path.suffix.lower() in IMAGE_SUFFIXES)
     labels = sorted(path for path in raw_labels_dir.glob("*.txt") if path.name != "classes.txt")
     image_stems = {path.stem: path for path in images}
     label_stems = {path.stem: path for path in labels}
-    issues: list[DatasetValidationIssue] = []
     box_count = 0
 
     for stem, image_path in image_stems.items():

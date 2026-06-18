@@ -26,6 +26,17 @@ def test_validate_yolo_dataset_reports_missing_label_file(tmp_path):
     assert [issue.code for issue in summary.issues] == ["missing_label"]
 
 
+def test_validate_yolo_dataset_reports_missing_raw_directories(tmp_path):
+    summary = validate_yolo_dataset(
+        raw_images_dir=tmp_path / "images" / "raw",
+        raw_labels_dir=tmp_path / "labels" / "raw",
+    )
+
+    assert summary.image_count == 0
+    assert summary.label_count == 0
+    assert [issue.code for issue in summary.issues] == ["missing_images_dir", "missing_labels_dir"]
+
+
 def test_validate_yolo_dataset_reports_invalid_class_id(tmp_path):
     images = tmp_path / "images" / "raw"
     labels = tmp_path / "labels" / "raw"
