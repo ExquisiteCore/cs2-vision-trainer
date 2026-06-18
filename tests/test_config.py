@@ -1,27 +1,25 @@
 import pytest
 
-from cs2_vision_trainer.config import SafetyConfig
+from cs2_vision_trainer.config import PreviewConfig
 
 
-def test_default_safety_config_is_read_only():
-    config = SafetyConfig()
+def test_preview_config_accepts_valid_model_and_confidence():
+    config = PreviewConfig(model="runs/detect/train/weights/best.pt")
 
-    assert config.allow_game_memory_access is False
-    assert config.allow_input_control is False
-    assert config.allow_process_injection is False
-    assert config.allow_in_game_overlay is False
+    assert config.source == "screen"
+    assert config.confidence == 0.25
     config.validate()
 
 
-def test_safety_config_rejects_input_control():
-    config = SafetyConfig(allow_input_control=True)
+def test_preview_config_rejects_invalid_confidence():
+    config = PreviewConfig(model="model.pt", confidence=1.5)
 
-    with pytest.raises(ValueError, match="input control"):
+    with pytest.raises(ValueError, match="confidence"):
         config.validate()
 
 
-def test_safety_config_rejects_process_injection():
-    config = SafetyConfig(allow_process_injection=True)
+def test_preview_config_rejects_missing_model():
+    config = PreviewConfig(model="")
 
-    with pytest.raises(ValueError, match="process injection"):
+    with pytest.raises(ValueError, match="model path"):
         config.validate()

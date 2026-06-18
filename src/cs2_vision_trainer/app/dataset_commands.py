@@ -30,6 +30,24 @@ def extract_frames(args: argparse.Namespace) -> int:
 
 def prepare_dataset(args: argparse.Namespace) -> int:
     root = Path(args.root)
+    class_names = tuple(args.class_names or DEFAULT_CLASS_NAMES)
+    validation = validate_yolo_dataset(
+        raw_images_dir=root / "images" / "raw",
+        raw_labels_dir=root / "labels" / "raw",
+        class_names=class_names,
+    )
+    if not validation.ok:
+        print(
+            f"dataset validation failed: "
+            f"images={validation.image_count} "
+            f"labels={validation.label_count} "
+            f"boxes={validation.box_count} "
+            f"issues={len(validation.issues)}"
+        )
+        for issue in validation.issues:
+            print(f"{issue.code}: {issue.path}: {issue.message}")
+        return 1
+
     summary = build_yolo_dataset(
         raw_images_dir=root / "images" / "raw",
         raw_labels_dir=root / "labels" / "raw",
@@ -39,7 +57,7 @@ def prepare_dataset(args: argparse.Namespace) -> int:
             seed=args.seed,
             include_empty=not args.no_empty,
             empty_limit=args.empty_limit,
-            class_names=tuple(args.class_names or DEFAULT_CLASS_NAMES),
+            class_names=class_names,
         ),
     )
     print(

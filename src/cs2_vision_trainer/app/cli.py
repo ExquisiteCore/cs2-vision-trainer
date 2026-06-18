@@ -15,11 +15,11 @@ DEFAULT_DATASET_ROOT = "datasets/cs2_multiclass"
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cs2-vision-trainer",
-        description="Read-only YOLO + OpenCV analyzer for CS2 training-range vision experiments.",
+        description="YOLO dataset, training, export, and review tools for CS2 vision experiments.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    run = subparsers.add_parser("run", help="run real-time visual detection")
+    run = subparsers.add_parser("run", help="preview visual detection for dataset review")
     run.add_argument("--model", required=True, help="YOLO model path: .pt, .onnx, or .engine")
     run.add_argument("--source", default="screen", help="screen, camera index, or video path")
     run.add_argument("--conf", type=float, default=0.25, help="minimum confidence")
@@ -50,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--device", default=None)
     export.set_defaults(func=export_model)
 
-    benchmark = subparsers.add_parser("benchmark", help="benchmark model inference on a source")
+    benchmark = subparsers.add_parser("benchmark", help="benchmark Python-side model preview inference")
     benchmark.add_argument("--model", required=True)
     benchmark.add_argument("--source", default="screen")
     benchmark.add_argument("--frames", type=int, default=120)

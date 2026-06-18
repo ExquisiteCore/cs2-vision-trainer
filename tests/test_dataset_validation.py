@@ -1,5 +1,7 @@
+from argparse import Namespace
 from pathlib import Path
 
+from cs2_vision_trainer.app.dataset_commands import prepare_dataset
 from cs2_vision_trainer.dataset.validation import validate_yolo_dataset
 
 
@@ -59,3 +61,23 @@ def test_validate_yolo_dataset_allows_small_boundary_rounding_error(tmp_path):
 
     assert summary.box_count == 1
     assert summary.issues == []
+
+
+def test_prepare_dataset_fails_when_validation_reports_issues(tmp_path, capsys):
+    root = tmp_path / "dataset"
+    write_image(root / "images" / "raw" / "frame.jpg")
+    (root / "labels" / "raw").mkdir(parents=True)
+
+    code = prepare_dataset(
+        Namespace(
+            root=str(root),
+            val_ratio=0.2,
+            seed=7,
+            no_empty=False,
+            empty_limit=100,
+            class_names=(),
+        )
+    )
+
+    assert code == 1
+    assert "dataset validation failed" in capsys.readouterr().out

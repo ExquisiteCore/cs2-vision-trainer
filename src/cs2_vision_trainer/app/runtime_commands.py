@@ -7,13 +7,13 @@ from pathlib import Path
 import cv2
 
 from cs2_vision_trainer.capture import open_frame_source
-from cs2_vision_trainer.config import RuntimeConfig
+from cs2_vision_trainer.config import PreviewConfig
 from cs2_vision_trainer.detector import UltralyticsYoloDetector
 from cs2_vision_trainer.render import draw_detections
 
 
 def run_detection(args: argparse.Namespace) -> int:
-    config = RuntimeConfig(
+    config = PreviewConfig(
         model=args.model,
         source=args.source,
         confidence=args.conf,

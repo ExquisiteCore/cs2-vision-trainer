@@ -1,4 +1,4 @@
-"""Read-only CS2 training-range vision analyzer."""
+"""YOLO dataset, training, export, and review tools for CS2 vision experiments."""
 
 __all__ = ["__version__"]
 

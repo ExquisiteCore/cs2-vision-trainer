@@ -59,6 +59,8 @@ uv run cs2-vision-trainer run --model path\to\model.pt --source screen
 ```
 
 Press `q` to quit. Press `s` to save the current frame into `runs/samples`.
+This Python `run` command is a preview/review helper. Live runtime control
+belongs to `tools\cpp_analyzer`.
 
 ## Project Folders
 
@@ -85,13 +87,15 @@ Use dry-run while tuning:
 ```powershell
 cd tools\cpp_analyzer
 xmake run vision_analyzer --backend opencv-onnx --model D:\project\cs2-vision-trainer\runs\detect\train\weights\best.onnx --video D:\project\cs2-vision-trainer\videos\02.mp4 --dry-run --preview
+xmake run vision_analyzer --backend opencv-onnx --model D:\project\cs2-vision-trainer\runs\detect\train\weights\best.onnx --input dxgi --dxgi-output 0 --dry-run --preview
 ```
 
 Use live SDK output after calibration:
 
 ```powershell
 cd tools\cpp_analyzer
-xmake run vision_analyzer --backend opencv-onnx --model D:\project\cs2-vision-trainer\runs\detect\train\weights\best.onnx --video D:\project\cs2-vision-trainer\videos\02.mp4 --hid-port COM3 --hid-gain 1.0 --hid-max-step 120
+xmake f --hid_sdk_root=D:\project\pi\test\sdk\cpp
+xmake run vision_analyzer --backend opencv-onnx --model D:\project\cs2-vision-trainer\runs\detect\train\weights\best.onnx --input dxgi --dxgi-output 0 --player-side ct --hid-port COM3 --hid-gain 1.0 --hid-max-step 120
 ```
 
 The RP2350 firmware sends standard relative USB HID mouse reports. Windows
@@ -99,6 +103,10 @@ pointer speed and Enhance Pointer Precision can affect normal pointer movement;
 Raw Input paths are usually dominated by HID counts and in-application
 sensitivity. Tune `--hid-gain` and `--hid-max-step`; the runtime does not read
 or modify Windows pointer settings.
+
+Live SDK output requires `--player-side ct` or `--player-side t`. The runtime
+uses side-specific filtering, a 2D Kalman target estimate, and head-only click
+candidates. Body detections can help tracking but do not trigger left click.
 
 ## Build A First Dataset From A Video
 
