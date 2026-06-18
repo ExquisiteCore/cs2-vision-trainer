@@ -1,7 +1,7 @@
 [project]
 name = "cs2-vision-trainer"
 version = "0.1.0"
-description = "Read-only CS2 training-range vision analyzer using YOLO and OpenCV."
+description = "YOLO dataset, training, export, and review tools for CS2 vision experiments."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
