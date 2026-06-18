@@ -3,7 +3,7 @@
 ## Goal
 
 Build a read-only visual analysis tool for CS2 training-range experiments. The
-tool captures video or screen frames, runs YOLO enemy detection, displays
+tool captures video or screen frames, runs YOLO visual detection, displays
 results in a separate window, and saves difficult frames for dataset iteration.
 
 ## Safety Boundary
@@ -50,5 +50,14 @@ The project supports a practical active-learning loop:
 
 ## Initial Classes
 
-Start with one class, `enemy`, until the detector is stable. Add `enemy_head`
-later when enough high-quality head labels exist.
+Use visible CS2 factions and parts as training labels:
+
+```text
+ct_body
+ct_head
+t_body
+t_head
+```
+
+Enemy and teammate status should be derived from the player's current side at
+runtime instead of being baked into the training labels.
