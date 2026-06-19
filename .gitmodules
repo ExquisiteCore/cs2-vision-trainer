@@ -1,3 +1,6 @@
 [submodule "tools/cpp_analyzer"]
 	path = tools/cpp_analyzer
 	url = ../cpp_analyzer.git
+[submodule "tools/rp2350_hid_bridge_cpp"]
+	path = tools/rp2350_hid_bridge_cpp
+	url = ../rp2350_hid_bridge_cpp.git

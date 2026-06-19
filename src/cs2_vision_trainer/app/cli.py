@@ -48,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--imgsz", type=int, default=640)
     export.add_argument("--half", action="store_true", help="use FP16 where supported")
     export.add_argument("--device", default=None)
+    export.add_argument("--schema", default=None, help="optional output path for exported model schema JSON")
     export.set_defaults(func=export_model)
 
     benchmark = subparsers.add_parser("benchmark", help="benchmark Python-side model preview inference")

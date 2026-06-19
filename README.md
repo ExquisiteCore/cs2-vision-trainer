@@ -73,6 +73,7 @@ datasets\cs2_multiclass\images\val   generated validation split
 runs\detect\train\weights       trained model output
 models\base                     downloaded base YOLO weights
 tools\cpp_analyzer              C++ runtime controller submodule
+tools\rp2350_hid_bridge_cpp     RP2350 HID bridge C++ SDK submodule
 ```
 
 ## C++ Runtime Controller
@@ -94,19 +95,25 @@ Use live SDK output after calibration:
 
 ```powershell
 cd tools\cpp_analyzer
-xmake f --hid_sdk_root=D:\project\pi\test\sdk\cpp
+xmake f
+xmake
+xmake run vision_analyzer --list-dxgi-outputs
+xmake run vision_analyzer --input dxgi --dxgi-output 0 --verify-input
 xmake run vision_analyzer --backend opencv-onnx --model D:\project\cs2-vision-trainer\runs\detect\train\weights\best.onnx --input dxgi --dxgi-output 0 --player-side ct --hid-port COM3 --hid-gain 1.0 --hid-max-step 120
 ```
 
 The RP2350 firmware sends standard relative USB HID mouse reports. Windows
 pointer speed and Enhance Pointer Precision can affect normal pointer movement;
 Raw Input paths are usually dominated by HID counts and in-application
-sensitivity. Tune `--hid-gain` and `--hid-max-step`; the runtime does not read
-or modify Windows pointer settings.
+sensitivity. The C++ runtime can print current Windows pointer settings during
+`--calibrate-hid`, but it does not modify them. Tune `--hid-gain`,
+`--hid-max-step`, and `--hid-deadzone` in `tools\cpp_analyzer\runtime.example.cfg`
+or through CLI flags.
 
 Live SDK output requires `--player-side ct` or `--player-side t`. The runtime
 uses side-specific filtering, a 2D Kalman target estimate, and head-only click
-candidates. Body detections can help tracking but do not trigger left click.
+candidates. Body detections only provide a fallback anchor near the top of the
+body box and do not move to body center or trigger left click.
 
 ## Build A First Dataset From A Video
 
@@ -160,6 +167,16 @@ uv run --extra dev cs2-vision-trainer train `
   --imgsz 640 `
   --batch 8 `
   --device 0
+```
+
+Export a model for C++ runtime use. The export command writes a schema file next
+to the exported model so the C++ runtime can verify the class order:
+
+```powershell
+uv run --extra dev cs2-vision-trainer export `
+  --model runs\detect\train\weights\best.pt `
+  --format onnx `
+  --imgsz 640
 ```
 
 ## Review Model Mistakes
