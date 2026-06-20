@@ -34,6 +34,14 @@ Python SDK 用法
 5. 最后再接 DXGI + 板子
 ```
 
+如果你只是想先看 Python 到底怎么调用，直接看这三个脚本：
+
+```text
+examples/runtime_video_dryrun.py   Python 调 DLL 跑视频，不动鼠标
+examples/runtime_dxgi_dryrun.py    Python 调 DLL 读屏幕，不动鼠标
+examples/runtime_live_move.py      Python 调 DLL 读屏幕，并通过板子移动鼠标
+```
+
 ## 1. 第一次拉代码
 
 如果是新电脑，直接这样拉：
@@ -203,14 +211,14 @@ click=1    说明如果不是 dry-run，这一帧会左键
 
 这个也是不会动鼠标的测试。
 
-在主目录新建一个本地测试脚本，比如：
+最简单是直接运行项目里已经写好的示例：
 
 ```powershell
 cd D:\project\cs2-vision-trainer
-notepad .\runtime_video_test.py
+uv run python examples\runtime_video_dryrun.py
 ```
 
-写入：
+这个脚本本质上就是下面这段代码：
 
 ```python
 from cs2_vision_runtime import VisionRuntime
@@ -238,12 +246,6 @@ with VisionRuntime() as rt:
                 "click=", int(action.click_left),
                 "lock=", action.lock_state.name,
             )
-```
-
-运行：
-
-```powershell
-uv run python .\runtime_video_test.py
 ```
 
 如果输出类似这样，说明 Python 已经成功调用 C++ DLL：
