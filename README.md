@@ -77,6 +77,9 @@ git submodule status --recursive
 - Python SDK 安装和单元测试。
 - RP2350 固件 Rust 交叉编译、hidctl 工具编译和 picotool 烧录方式。
 
+第一次使用建议先看 [docs/USAGE.md](docs/USAGE.md)，它按实际操作顺序写，从编译
+DLL、跑视频 dry-run、Python SDK 调用，到 DXGI 和板子移动。
+
 最小构建流程：
 
 ```powershell
