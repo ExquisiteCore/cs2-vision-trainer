@@ -1,9 +1,9 @@
 [submodule "tools/cpp_analyzer"]
 	path = tools/cpp_analyzer
-	url = git@github.com:ExquisiteCore/cs2-vision-cpp-analyzer.git
+	url = https://github.com/ExquisiteCore/cs2-vision-cpp-analyzer.git
 [submodule "tools/rp2350_hid_bridge_cpp"]
 	path = tools/rp2350_hid_bridge_cpp
-	url = git@github.com:ExquisiteCore/rp2350-hid-bridge-cpp.git
+	url = https://github.com/ExquisiteCore/rp2350-hid-bridge-cpp.git
 [submodule "tools/rp2350_keymouse_bridge_firmware"]
 	path = tools/rp2350_keymouse_bridge_firmware
-	url = git@github.com:ExquisiteCore/rp2350-keymouse-bridge-firmware.git
+	url = https://github.com/ExquisiteCore/rp2350-keymouse-bridge-firmware.git
