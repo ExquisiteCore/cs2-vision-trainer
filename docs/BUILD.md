@@ -128,6 +128,20 @@ xmake
 xmake run vision_analyzer_tests
 ```
 
+构建 DLL 和 C API 测试：
+
+```powershell
+xmake build vision_runtime
+xmake run vision_runtime_c_api_tests
+```
+
+DLL 产物位置：
+
+```text
+tools\cpp_analyzer\build\windows\x64\release\vision_runtime.dll
+tools\cpp_analyzer\build\windows\x64\release\vision_runtime.lib
+```
+
 如果要显式指定 SDK：
 
 ```powershell
@@ -212,6 +226,62 @@ best.onnx.schema.json
 ```
 
 否则 runtime 会拒绝启动，避免类别顺序不一致。
+
+## 4.1 Python SDK 调用 Runtime DLL
+
+主仓库提供 `cs2_vision_runtime` Python 包。它通过 `ctypes` 加载
+`vision_runtime.dll`，适合给其他 Python 程序直接集成。
+
+最小 dry-run 示例：
+
+```python
+from cs2_vision_runtime import VisionRuntime
+
+with VisionRuntime() as runtime:
+    runtime.set_model(
+        "runs/detect/train/weights/best.onnx",
+        schema_path="runs/detect/train/weights/best.onnx.schema.json",
+        backend="opencv-onnx",
+    )
+    runtime.open_video("videos/02.mp4", dry_run=True)
+
+    while True:
+        action = runtime.process_next()
+        if action is None:
+            break
+        print(action.frame_index, action.dx, action.dy, action.click_left)
+```
+
+DXGI live 示例：
+
+```python
+from cs2_vision_runtime import VisionRuntime
+
+with VisionRuntime() as runtime:
+    runtime.set_model(
+        "runs/detect/train/weights/best.onnx",
+        schema_path="runs/detect/train/weights/best.onnx.schema.json",
+        backend="opencv-onnx",
+    )
+    runtime.set_hid_tuning(gain=1.0, max_step=120, deadzone_px=1.5)
+    runtime.set_hid_click(enabled=False)
+    runtime.open_dxgi(output=0, player_side="ct", hid_port="COM3", dry_run=False)
+
+    while True:
+        action = runtime.process_next()
+        if action is None:
+            break
+```
+
+DLL 自动查找顺序：
+
+```text
+CS2_VISION_RUNTIME_DLL 环境变量
+src\cs2_vision_runtime\vision_runtime.dll
+src\cs2_vision_runtime\bin\vision_runtime.dll
+tools\cpp_analyzer\build\windows\x64\release\vision_runtime.dll
+tools\cpp_analyzer\build\windows\x64\debug\vision_runtime.dll
+```
 
 ## 5. RP2350 HID Bridge C++ SDK
 

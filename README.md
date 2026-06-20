@@ -169,6 +169,48 @@ xmake run vision_analyzer --backend opencv-onnx --model D:\project\cs2-vision-tr
 
 启用左键输出需要额外传 `--hid-click`。调试阶段建议先不加该参数。
 
+## Python 调用 C++ Runtime
+
+C++ runtime 也可以编译为 `vision_runtime.dll`，然后通过 Python SDK
+`cs2_vision_runtime` 被其他程序直接调用，不需要启动 `vision_analyzer.exe`。
+
+编译 DLL：
+
+```powershell
+cd tools\cpp_analyzer
+xmake f -m release
+xmake build vision_runtime
+cd ..\..
+```
+
+Python 示例：
+
+```python
+from cs2_vision_runtime import VisionRuntime
+
+rt = VisionRuntime()
+rt.set_model(
+    "runs/detect/train/weights/best.onnx",
+    schema_path="runs/detect/train/weights/best.onnx.schema.json",
+    backend="opencv-onnx",
+)
+rt.open_video("videos/02.mp4", dry_run=True)
+
+while True:
+    action = rt.process_next()
+    if action is None:
+        break
+    print(action.frame_index, action.dx, action.dy, action.click_left)
+
+rt.close()
+```
+
+如果 DLL 不在默认构建目录，可以指定环境变量：
+
+```powershell
+$env:CS2_VISION_RUNTIME_DLL="D:\path\to\vision_runtime.dll"
+```
+
 ## 固件和 SDK
 
 固件仓库位于 `tools\rp2350_keymouse_bridge_firmware`，包含：
