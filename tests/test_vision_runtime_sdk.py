@@ -1,6 +1,15 @@
+import ctypes
+import importlib.util
+from pathlib import Path
+
 import pytest
 
-from cs2_vision_runtime.runtime import _CAction, VisionAction, VisionRuntime
+from cs2_vision_runtime.runtime import (
+    _CAction,
+    _CCalibrationProfile,
+    VisionAction,
+    VisionRuntime,
+)
 from cs2_vision_runtime import LockState
 
 
@@ -46,6 +55,35 @@ class FakeApi:
 
     def set_dry_run(self, handle, dry_run):
         self.calls.append(("set_dry_run", dry_run))
+        return 0
+
+    def set_output_enabled(self, handle, enabled):
+        self.calls.append(("set_output_enabled", bool(enabled)))
+        return 0
+
+    def set_fire_enabled(self, handle, enabled):
+        self.calls.append(("set_fire_enabled", bool(enabled)))
+        return 0
+
+    def set_fire_policy(self, handle, body, head_conf, body_conf, cooldown):
+        self.calls.append(("set_fire_policy", bool(body), head_conf, body_conf, cooldown))
+        return 0
+
+    def calibrate_hid(self, handle, adapter, output, profile):
+        self.calls.append(("calibrate_hid", adapter, output))
+        profile.schema_version = 1
+        profile.valid = 1
+        profile.frame_width = 1920
+        profile.frame_height = 1080
+        profile.x_shift_px[:] = (8.0, 32.0, 96.0)
+        profile.x_counts_per_pixel[:] = (2.0, 3.0, 4.0)
+        profile.y_shift_px[:] = (8.0, 32.0, 96.0)
+        profile.y_counts_per_pixel[:] = (-2.0, -3.0, -4.0)
+        profile.deadzone_px = 1.0
+        profile.max_step = 120
+        profile.noise_px = 0.25
+        profile.quality = 0.9
+        profile.accepted_samples = 24
         return 0
 
     def set_hid_click(self, handle, enabled, cooldown_frames):
@@ -173,3 +211,80 @@ def test_runtime_error_uses_last_error():
 
     with pytest.raises(RuntimeError, match="bad model"):
         runtime.set_model("bad.onnx")
+
+
+def test_calibration_ctypes_layout_matches_c_abi():
+    assert ctypes.sizeof(_CCalibrationProfile) == 84
+
+
+def test_runtime_forwards_live_control_and_fire_policy():
+    api = FakeApi()
+    runtime = VisionRuntime(_api=api)
+    runtime.set_output_enabled(True)
+    runtime.set_fire_enabled(True)
+    runtime.set_fire_policy(
+        body_enabled=True,
+        head_confidence=0.35,
+        body_confidence=0.45,
+        cooldown_frames=3,
+    )
+    assert ("set_output_enabled", True) in api.calls
+    assert ("set_fire_enabled", True) in api.calls
+    assert ("set_fire_policy", True, 0.35, 0.45, 3) in api.calls
+
+
+def test_runtime_converts_calibration_profile():
+    api = FakeApi()
+    runtime = VisionRuntime(_api=api)
+    profile = runtime.calibrate_hid(adapter=1, output=2)
+    assert profile.valid is True
+    assert profile.x_shift_px == (8.0, 32.0, 96.0)
+    assert profile.y_counts_per_pixel[0] < 0.0
+    assert profile.accepted_samples == 24
+    assert ("calibrate_hid", 1, 2) in api.calls
+
+
+def test_calibration_failure_uses_last_error():
+    api = FakeApi()
+    runtime = VisionRuntime(_api=api)
+    api.error = "calibration scene is unstable"
+    api.calibrate_hid = lambda handle, adapter, output, profile: -1
+
+    with pytest.raises(RuntimeError, match="unstable"):
+        runtime.calibrate_hid()
+
+
+def test_armed_loop_always_disarms_after_processing_error():
+    example_path = Path(__file__).parents[1] / "examples" / "runtime_live_move.py"
+    spec = importlib.util.spec_from_file_location("runtime_live_move", example_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    run_armed_loop = module.run_armed_loop
+
+    class ExplodingRuntime:
+        def __init__(self):
+            self.calls = []
+
+        def set_output_enabled(self, value):
+            self.calls.append(("output", value))
+
+        def set_fire_enabled(self, value):
+            self.calls.append(("fire", value))
+
+        def process_next(self):
+            raise RuntimeError("capture failed")
+
+        def stop_all(self):
+            self.calls.append(("stop_all",))
+
+    runtime = ExplodingRuntime()
+    with pytest.raises(RuntimeError, match="capture failed"):
+        run_armed_loop(runtime, fire_enabled=True, show_every=30)
+    assert runtime.calls == [
+        ("output", True),
+        ("fire", True),
+        ("fire", False),
+        ("output", False),
+        ("stop_all",),
+    ]

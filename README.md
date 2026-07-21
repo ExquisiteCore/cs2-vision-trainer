@@ -186,27 +186,52 @@ xmake build vision_runtime
 cd ..\..
 ```
 
-Python 示例：
+Python 全自动调用顺序（无 UI）：
 
 ```python
 from cs2_vision_runtime import VisionRuntime
 
-rt = VisionRuntime()
-rt.set_model(
-    "runs/detect/train/weights/best.onnx",
-    schema_path="runs/detect/train/weights/best.onnx.schema.json",
-    backend="opencv-onnx",
-)
-rt.open_video("videos/02.mp4", dry_run=True)
+with VisionRuntime() as rt:
+    rt.set_model(
+        "runs/detect/train/weights/best.onnx",
+        schema_path="runs/detect/train/weights/best.onnx.schema.json",
+        backend="ort-tensorrt",
+    )
+    rt.set_hid_port("COM3")
 
-while True:
-    action = rt.process_next()
-    if action is None:
-        break
-    print(action.frame_index, action.dx, action.dy, action.click_left)
+    # 进入对局并保持画面稳定后，每次启动调用一次。
+    profile = rt.calibrate_hid(adapter=0, output=0)
+    print(profile.quality, profile.x_counts_per_pixel, profile.y_counts_per_pixel)
 
-rt.close()
+    rt.set_fire_policy(
+        body_enabled=True,
+        head_confidence=0.35,
+        body_confidence=0.45,
+        cooldown_frames=3,
+    )
+    rt.open_dxgi(
+        adapter=0,
+        output=0,
+        player_side="ct",
+        hid_port="COM3",
+        dry_run=False,
+    )
+
+    try:
+        rt.set_output_enabled(True)  # 允许 DLL 输出瞄准移动
+        rt.set_fire_enabled(True)    # 允许 DLL 自动开火
+        while rt.process_next() is not None:
+            pass
+    finally:
+        rt.set_fire_enabled(False)
+        rt.set_output_enabled(False)
+        rt.stop_all()
 ```
+
+`set_output_enabled` 与 `set_fire_enabled` 是两个独立开关。新建运行时默认都关闭；
+标定是普通输出关闭时唯一允许发送的受控测试移动。标定失败不会安装部分曲线，
+请等画面稳定后重试。完整命令行示例见 `examples/runtime_live_move.py`，真实输出必须
+显式增加 `--enable-live-output`，自动开火还需增加 `--click`。
 
 如果 DLL 不在默认构建目录，可以指定环境变量：
 

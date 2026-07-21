@@ -39,6 +39,24 @@ class _CAction(ctypes.Structure):
     ]
 
 
+class _CCalibrationProfile(ctypes.Structure):
+    _fields_ = [
+        ("schema_version", ctypes.c_int32),
+        ("valid", ctypes.c_int32),
+        ("frame_width", ctypes.c_int32),
+        ("frame_height", ctypes.c_int32),
+        ("x_shift_px", ctypes.c_float * 3),
+        ("x_counts_per_pixel", ctypes.c_float * 3),
+        ("y_shift_px", ctypes.c_float * 3),
+        ("y_counts_per_pixel", ctypes.c_float * 3),
+        ("deadzone_px", ctypes.c_float),
+        ("max_step", ctypes.c_int32),
+        ("noise_px", ctypes.c_float),
+        ("quality", ctypes.c_float),
+        ("accepted_samples", ctypes.c_int32),
+    ]
+
+
 @dataclass(frozen=True)
 class VisionAction:
     frame_index: int
@@ -81,6 +99,41 @@ class VisionAction:
             offset_y=action.offset_y,
             target_x=action.target_x,
             target_y=action.target_y,
+        )
+
+
+@dataclass(frozen=True)
+class HidCalibrationProfile:
+    schema_version: int
+    valid: bool
+    frame_width: int
+    frame_height: int
+    x_shift_px: tuple[float, float, float]
+    x_counts_per_pixel: tuple[float, float, float]
+    y_shift_px: tuple[float, float, float]
+    y_counts_per_pixel: tuple[float, float, float]
+    deadzone_px: float
+    max_step: int
+    noise_px: float
+    quality: float
+    accepted_samples: int
+
+    @classmethod
+    def from_c(cls, profile: _CCalibrationProfile) -> "HidCalibrationProfile":
+        return cls(
+            schema_version=profile.schema_version,
+            valid=bool(profile.valid),
+            frame_width=profile.frame_width,
+            frame_height=profile.frame_height,
+            x_shift_px=tuple(float(value) for value in profile.x_shift_px),
+            x_counts_per_pixel=tuple(float(value) for value in profile.x_counts_per_pixel),
+            y_shift_px=tuple(float(value) for value in profile.y_shift_px),
+            y_counts_per_pixel=tuple(float(value) for value in profile.y_counts_per_pixel),
+            deadzone_px=float(profile.deadzone_px),
+            max_step=profile.max_step,
+            noise_px=float(profile.noise_px),
+            quality=float(profile.quality),
+            accepted_samples=profile.accepted_samples,
         )
 
 
@@ -156,6 +209,18 @@ class _RuntimeApi:
 
         dll.va_set_dry_run.argtypes = [ctypes.c_void_p, ctypes.c_int32]
         dll.va_set_dry_run.restype = ctypes.c_int32
+        dll.va_set_output_enabled.argtypes = [ctypes.c_void_p, ctypes.c_int32]
+        dll.va_set_output_enabled.restype = ctypes.c_int32
+        dll.va_set_fire_enabled.argtypes = [ctypes.c_void_p, ctypes.c_int32]
+        dll.va_set_fire_enabled.restype = ctypes.c_int32
+        dll.va_set_fire_policy.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int32,
+            ctypes.c_float,
+            ctypes.c_float,
+            ctypes.c_int32,
+        ]
+        dll.va_set_fire_policy.restype = ctypes.c_int32
         dll.va_set_hid_click.argtypes = [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32]
         dll.va_set_hid_click.restype = ctypes.c_int32
         dll.va_set_hid_tuning.argtypes = [ctypes.c_void_p, ctypes.c_float, ctypes.c_int32, ctypes.c_float]
@@ -170,6 +235,13 @@ class _RuntimeApi:
         dll.va_open_video.restype = ctypes.c_int32
         dll.va_open_dxgi.argtypes = [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32, ctypes.c_int32]
         dll.va_open_dxgi.restype = ctypes.c_int32
+        dll.va_calibrate_hid.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int32,
+            ctypes.c_int32,
+            ctypes.POINTER(_CCalibrationProfile),
+        ]
+        dll.va_calibrate_hid.restype = ctypes.c_int32
         dll.va_process_next.argtypes = [ctypes.c_void_p, ctypes.POINTER(_CAction)]
         dll.va_process_next.restype = ctypes.c_int32
         dll.va_stop_all.argtypes = [ctypes.c_void_p]
@@ -208,6 +280,30 @@ class _RuntimeApi:
     def set_dry_run(self, handle: int, dry_run: bool) -> int:
         return int(self._dll.va_set_dry_run(handle, int(dry_run)))
 
+    def set_output_enabled(self, handle: int, enabled: bool) -> int:
+        return int(self._dll.va_set_output_enabled(handle, int(enabled)))
+
+    def set_fire_enabled(self, handle: int, enabled: bool) -> int:
+        return int(self._dll.va_set_fire_enabled(handle, int(enabled)))
+
+    def set_fire_policy(
+        self,
+        handle: int,
+        body_enabled: bool,
+        head_confidence: float,
+        body_confidence: float,
+        cooldown_frames: int,
+    ) -> int:
+        return int(
+            self._dll.va_set_fire_policy(
+                handle,
+                int(body_enabled),
+                head_confidence,
+                body_confidence,
+                cooldown_frames,
+            )
+        )
+
     def set_hid_click(self, handle: int, enabled: bool, cooldown_frames: int) -> int:
         return int(self._dll.va_set_hid_click(handle, int(enabled), cooldown_frames))
 
@@ -228,6 +324,15 @@ class _RuntimeApi:
 
     def open_dxgi(self, handle: int, adapter: int, output: int, dry_run: bool) -> int:
         return int(self._dll.va_open_dxgi(handle, adapter, output, int(dry_run)))
+
+    def calibrate_hid(
+        self,
+        handle: int,
+        adapter: int,
+        output: int,
+        profile: _CCalibrationProfile,
+    ) -> int:
+        return int(self._dll.va_calibrate_hid(handle, adapter, output, ctypes.byref(profile)))
 
     def process_next(self, handle: int, action: _CAction) -> int:
         return int(self._dll.va_process_next(handle, ctypes.byref(action)))
@@ -302,7 +407,31 @@ class VisionRuntime:
     def set_dry_run(self, dry_run: bool) -> None:
         self._check(self._api.set_dry_run(self._require_handle(), dry_run))
 
-    def set_hid_click(self, enabled: bool, cooldown_frames: int = 6) -> None:
+    def set_output_enabled(self, enabled: bool) -> None:
+        self._check(self._api.set_output_enabled(self._require_handle(), enabled))
+
+    def set_fire_enabled(self, enabled: bool) -> None:
+        self._check(self._api.set_fire_enabled(self._require_handle(), enabled))
+
+    def set_fire_policy(
+        self,
+        *,
+        body_enabled: bool = True,
+        head_confidence: float = 0.35,
+        body_confidence: float = 0.45,
+        cooldown_frames: int = 3,
+    ) -> None:
+        self._check(
+            self._api.set_fire_policy(
+                self._require_handle(),
+                body_enabled,
+                head_confidence,
+                body_confidence,
+                cooldown_frames,
+            )
+        )
+
+    def set_hid_click(self, enabled: bool, cooldown_frames: int = 3) -> None:
         self._check(self._api.set_hid_click(self._require_handle(), enabled, cooldown_frames))
 
     def set_hid_tuning(self, gain: float = 1.0, max_step: int = 120, deadzone_px: float = 1.5) -> None:
@@ -334,6 +463,18 @@ class VisionRuntime:
         if hid_port is not None:
             self.set_hid_port(hid_port)
         self._check(self._api.open_dxgi(self._require_handle(), adapter, output, dry_run))
+
+    def calibrate_hid(self, *, adapter: int = 0, output: int = 0) -> HidCalibrationProfile:
+        profile = _CCalibrationProfile()
+        self._check(
+            self._api.calibrate_hid(
+                self._require_handle(),
+                adapter,
+                output,
+                profile,
+            )
+        )
+        return HidCalibrationProfile.from_c(profile)
 
     def process_next(self) -> VisionAction | None:
         action = _CAction()
