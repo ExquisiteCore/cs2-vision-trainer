@@ -7,8 +7,8 @@ from cs2_vision_runtime import VisionRuntime
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_MODEL = ROOT / "assets" / "best.onnx"
-PACKAGE_SCHEMA = ROOT / "assets" / "best.onnx.schema.json"
+PACKAGE_MODEL = ROOT / "model" / "best.onnx"
+PACKAGE_SCHEMA = ROOT / "model" / "best.onnx.schema.json"
 DEFAULT_MODEL = PACKAGE_MODEL if PACKAGE_MODEL.exists() else ROOT / "runs" / "detect" / "train" / "weights" / "best.onnx"
 DEFAULT_SCHEMA = PACKAGE_SCHEMA if PACKAGE_SCHEMA.exists() else ROOT / "runs" / "detect" / "train" / "weights" / "best.onnx.schema.json"
 

@@ -239,6 +239,9 @@ with VisionRuntime() as rt:
 $env:CS2_VISION_RUNTIME_DLL="D:\path\to\vision_runtime.dll"
 ```
 
+当 DLL 位于便携包的 `app` 目录时，包装层会自动注册包内的 TensorRT、cuDNN、
+CUDA 和 MSVC 私有 DLL 目录，不需要修改系统 PATH 或安装完整 CUDA Toolkit。
+
 ## 固件和 SDK
 
 固件仓库位于 `tools\rp2350_keymouse_bridge_firmware`，包含：

@@ -180,9 +180,32 @@ def find_runtime_dll(explicit_path: str | os.PathLike[str] | None = None) -> Pat
     )
 
 
+def _runtime_dll_directories(dll_path: str | os.PathLike[str]) -> list[Path]:
+    path = Path(dll_path)
+    candidates = [path.parent]
+    if path.parent.name.lower() == "app":
+        package_root = path.parent.parent
+        candidates.extend(
+            [
+                package_root / "runtime" / "tensorrt-8.6.1.6",
+                package_root / "runtime" / "cudnn-8.9",
+                package_root / "runtime" / "cuda-11.8",
+                package_root / "runtime" / "msvc-x64",
+            ]
+        )
+    return [directory for directory in candidates if directory.is_dir()]
+
+
 class _RuntimeApi:
     def __init__(self, dll_path: str | os.PathLike[str] | None = None):
         self.path = find_runtime_dll(dll_path)
+        self._dll_directory_handles = []
+        add_dll_directory = getattr(os, "add_dll_directory", None)
+        if add_dll_directory is not None:
+            self._dll_directory_handles = [
+                add_dll_directory(str(directory))
+                for directory in _runtime_dll_directories(self.path)
+            ]
         self._dll = ctypes.CDLL(str(self.path))
         self._configure()
 

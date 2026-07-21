@@ -7,6 +7,7 @@ import pytest
 from cs2_vision_runtime.runtime import (
     _CAction,
     _CCalibrationProfile,
+    _runtime_dll_directories,
     VisionAction,
     VisionRuntime,
 )
@@ -215,6 +216,24 @@ def test_runtime_error_uses_last_error():
 
 def test_calibration_ctypes_layout_matches_c_abi():
     assert ctypes.sizeof(_CCalibrationProfile) == 84
+
+
+def test_portable_runtime_discovers_private_dll_directories(tmp_path):
+    package = tmp_path / "portable"
+    dll = package / "app" / "vision_runtime.dll"
+    dll.parent.mkdir(parents=True)
+    dll.touch()
+    expected = [
+        package / "app",
+        package / "runtime" / "tensorrt-8.6.1.6",
+        package / "runtime" / "cudnn-8.9",
+        package / "runtime" / "cuda-11.8",
+        package / "runtime" / "msvc-x64",
+    ]
+    for directory in expected[1:]:
+        directory.mkdir(parents=True)
+
+    assert _runtime_dll_directories(dll) == expected
 
 
 def test_runtime_forwards_live_control_and_fire_policy():
