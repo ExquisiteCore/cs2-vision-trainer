@@ -75,7 +75,7 @@ git submodule status --recursive
 - C++ runtime 使用 xmake 编译、测试、视频输入验证和 DXGI 输入验证。
 - C++ SDK 使用 CMake 编译测试。
 - Python SDK 安装和单元测试。
-- RP2350 固件 Rust 交叉编译、hidctl 工具编译和 picotool 烧录方式。
+- RP2350 固件 Rust 交叉编译、build-only 验证、显式 picotool 烧录方式。
 
 第一次使用建议先看 [docs/USAGE.md](docs/USAGE.md)，它按实际操作顺序写，从编译
 DLL、跑视频 dry-run、Python SDK 调用，到 DXGI 和板子移动。
@@ -254,6 +254,27 @@ CUDA 和 MSVC 私有 DLL 目录，不需要修改系统 PATH 或安装完整 CUD
 
 C++ runtime 默认会从 `tools\rp2350_hid_bridge_cpp` 引用 C++ SDK。固件仓库内也用
 submodule 引用了同一个 SDK，方便单独打开固件工程时测试。
+
+固件开发构建默认 USB VID/PID 为 `0xCAFE:0x2350`，可用
+`RP2350_USB_VID`/`RP2350_USB_PID` 在编译时覆盖。USB serial 来自 RP2350 OTP chip
+ID，格式为 `EXQC-KMOUSE-` 加 16 位大写十六进制数；当前代码没有共享 fallback
+serial，OTP 读取失败会在 USB 枚举前 panic。
+
+协议 v2 是默认版本；v1 保留零 flags、非零 sequence 的基础命令兼容，但不宣称 v2
+安全重试、heartbeat lease 或 cancellation 能力。键盘状态支持 8 位 modifier、最多 6
+个不同普通键，以及 `keycode=0` 的 modifier-only 操作；第 7 个不同普通键会在不改变
+现有按键或 modifier 状态的前提下被拒绝。
+
+v2 客户端以 500 ms heartbeat 维持 2 秒 control lease；DTR 下降、USB disable 或存在
+guarded work 时 lease 到期都会取消活动操作并 best-effort 释放全部输入。Batch 在
+`BATCH_BEGIN` 后预验证最多 32 条命令/8 KiB payload，`BATCH_END` 后独占按序执行；
+已经发出的物理 HID report 不能回滚。`STOP_ALL` 可在等待、逐字符、分段移动、延时与
+Batch 命令的 cooperative boundary 取消，丢弃尚未执行的 Batch 内容并释放输入。
+
+`cargo build --release` 只生成固件，不刷写、不打开串口、不发送 HID。刷写必须单独、
+显式调用固件仓库的 `tools\flash.ps1`（省略 `-ResolveOnly` 才会执行 picotool）。自动化
+测试只能使用纯逻辑/fake transport，禁止刷写或发送真实 HID；本次文档验证也不执行
+任何刷写、串口或 HID 动作。完整命令见 [docs/BUILD.md](docs/BUILD.md)。
 
 ## 本地数据和模型
 

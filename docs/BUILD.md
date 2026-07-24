@@ -360,11 +360,17 @@ rustup target add thumbv8m.main-none-eabihf
 cargo test --target x86_64-pc-windows-msvc --lib
 ```
 
+这些测试只运行纯协议/状态逻辑和 fake transport。自动化测试禁止调用 picotool、刷写
+板子、选择串口或发送真实 HID；硬件验收必须另行人工授权。
+
 固件编译：
 
 ```powershell
 cargo build --release
 ```
+
+`cargo build --release` 只编译、链接并生成固件产物，不运行 Cargo runner，不调用
+picotool，也不打开串口或发送 HID。
 
 产物位置：
 
@@ -372,19 +378,62 @@ cargo build --release
 target\thumbv8m.main-none-eabihf\release\rp2350-keymouse-bridge-firmware
 ```
 
-`.cargo\config.toml` 已经配置了默认 target 和 picotool runner。设置
-`PICOTOOL_PATH` 后可以直接烧录：
+开发构建默认 USB VID/PID 为 `0xCAFE:0x2350`。可在编译前用十进制或
+`0x` 前缀十六进制 `u16` 覆盖；非法值会让构建失败：
+
+```powershell
+$env:RP2350_USB_VID = "0x1234"
+$env:RP2350_USB_PID = "0x5678"
+cargo build --release
+```
+
+生产分发必须使用合法分配的 USB 标识。启动时固件读取 RP2350 OTP chip ID，将 USB
+serial 格式化为 `EXQC-KMOUSE-` 加 16 位大写十六进制数。当前实现没有固定或伪造的
+fallback serial：`embassy_rp::otp::get_chipid()` 失败会在 USB 枚举前 panic。
+
+`.cargo\config.toml` 的 runner 委托给 `tools\flash.ps1`。脚本优先使用
+`PICOTOOL_PATH`，否则从 `PATH` 解析 `picotool`。以下命令只校验已有产物并输出工具
+路径，不执行 picotool：
 
 ```powershell
 $env:PICOTOOL_PATH = "D:\Tool\picotool\picotool.exe"
-cargo run --release
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\flash.ps1 target\thumbv8m.main-none-eabihf\release\rp2350-keymouse-bridge-firmware -ResolveOnly
 ```
 
-也可以手动调用 picotool：
+刷写是独立、显式的硬件动作。仅在板子已进入 BOOTSEL 且明确决定刷写后，才移除
+`-ResolveOnly`：
 
 ```powershell
-& $env:PICOTOOL_PATH load -u -v -x -t elf target\thumbv8m.main-none-eabihf\release\rp2350-keymouse-bridge-firmware
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\flash.ps1 target\thumbv8m.main-none-eabihf\release\rp2350-keymouse-bridge-firmware
 ```
+
+该命令会执行 `picotool load -u -v -x -t elf`。`cargo run --release` 也会调用相同
+runner，因此属于刷写动作，不是构建或测试命令；本文验证不执行它们。
+
+### 7.1 协议 v2 与键盘状态
+
+固件默认使用协议 v2，并继续接受 `flags=0`、非零 sequence 的有效 v1 请求作为基础
+兼容。v1 `GET_CAPS` 只报告键盘、鼠标、ASCII 和 Batch 基础能力，不承诺 v2 的安全
+重试、lease 或 cancellation；v2 的 sequence 0 与 `NO_RESPONSE` 仅用于 heartbeat。
+
+键盘状态保存 8 个 modifier 位与最多 6 个不同的非 modifier keycode。`keycode=0`
+表示 modifier-only 操作，可单独按下/释放 Shift、Ctrl、Alt 或 GUI。第 7 个不同普通键
+会被事务式拒绝，按键数组和同一请求携带的 modifier 都保持原状；`KEY_UP` 只清除请求
+指定的键和 modifier 位。
+
+### 7.2 Heartbeat、DTR、Batch 与 STOP
+
+v2 客户端打开连接后每 500 ms 发送一次无响应 heartbeat；有效 v2 流量刷新 2 秒
+control lease。只有存在 held input、正在收集/执行的 Batch 或活跃长操作时，lease 到期
+才触发取消和全输入释放。DTR 下降沿或 USB disable 触发同样的 session reset；v1
+流量不会启动 lease，避免不发送 heartbeat 的旧客户端在 2 秒后意外释放按键。
+
+`BATCH_BEGIN` 用 shadow state 收集并预验证最多 32 条命令、8 KiB payload；
+`BATCH_END` 后独占、按序执行。该保证只覆盖“执行前验证和不被普通命令插入”，不是对
+已发送物理 HID report 的回滚。`STOP_ALL`、DTR 丢失、USB disable 和 lease 到期可在
+等待、逐字符输入、分段移动、tap/click delay 及 Batch 命令之间的 cooperative boundary
+取消；尚未执行的 Batch 命令会被丢弃，固件随后 best-effort 释放全部键盘和鼠标状态。
+显式 Batch 之外不存在隐藏的普通命令队列。
 
 `tools\hidctl` 是主机端串口调试工具：
 
