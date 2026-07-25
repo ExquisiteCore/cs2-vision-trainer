@@ -15,6 +15,7 @@ Visual Studio 2022 Build Tools，包含 MSVC C++ 工具链
 xmake
 CMake 3.20+
 Rust stable，支持 edition 2024
+elf2uf2-rs，用于生成 Pico 2 BOOTSEL UF2
 picotool，用于 RP2350 固件烧录
 ```
 
@@ -202,7 +203,8 @@ xmake run vision_analyzer `
   --hid-port COM3 `
   --hid-gain 1.0 `
   --hid-max-step 120 `
-  --preview
+  --preview `
+  --output-enabled
 ```
 
 启用点击：
@@ -216,7 +218,8 @@ xmake run vision_analyzer `
   --player-side ct `
   --hid-port COM3 `
   --hid-click `
-  --hid-click-cooldown 6
+  --hid-click-cooldown 6 `
+  --output-enabled
 ```
 
 live HID 模式要求模型旁边存在 schema，例如：
@@ -231,6 +234,7 @@ best.onnx.schema.json
 
 主仓库提供 `cs2_vision_runtime` Python 包。它通过 `ctypes` 加载
 `vision_runtime.dll`，适合给其他 Python 程序直接集成。
+这是可选调用方式；直接使用 `vision_analyzer.exe` 的程序不需要 Python SDK。
 
 最小 dry-run 示例：
 
@@ -263,15 +267,37 @@ with VisionRuntime() as runtime:
         schema_path="runs/detect/train/weights/best.onnx.schema.json",
         backend="opencv-onnx",
     )
-    runtime.set_hid_tuning(gain=1.0, max_step=120, deadzone_px=1.5)
-    runtime.set_hid_click(enabled=False)
+    runtime.set_hid_port("COM3")
+    profile = runtime.calibrate_hid(adapter=0, output=0)
+    print(profile.quality, profile.x_counts_per_pixel, profile.y_counts_per_pixel)
+    runtime.set_fire_policy(
+        body_enabled=True,
+        head_confidence=0.35,
+        body_confidence=0.45,
+        cooldown_frames=3,
+    )
     runtime.open_dxgi(output=0, player_side="ct", hid_port="COM3", dry_run=False)
 
-    while True:
-        action = runtime.process_next()
-        if action is None:
-            break
+    try:
+        runtime.set_output_enabled(True)
+        runtime.set_fire_enabled(False)
+        while runtime.process_next() is not None:
+            pass
+    finally:
+        runtime.set_fire_enabled(False)
+        runtime.set_output_enabled(False)
+        runtime.stop_all()
 ```
+
+新建 runtime 的移动和开火开关默认关闭。`calibrate_hid()` 是启动时受控标定；正常 live
+输出仍必须显式调用 `set_output_enabled(True)`，自动开火还必须单独调用
+`set_fire_enabled(True)`。推荐直接运行 `examples\runtime_live_move.py`：
+
+```powershell
+uv run python examples\runtime_live_move.py --hid-port COM3 --player-side ct --enable-live-output
+```
+
+只有确认需要自动开火时才额外增加 `--click`。
 
 DLL 自动查找顺序：
 
@@ -282,6 +308,37 @@ src\cs2_vision_runtime\bin\vision_runtime.dll
 tools\cpp_analyzer\build\windows\x64\release\vision_runtime.dll
 tools\cpp_analyzer\build\windows\x64\debug\vision_runtime.dll
 ```
+
+## 4.2 GTX 1080 Ti / SM61 便携包
+
+便携包固定使用 ONNX Runtime GPU 1.17.3、CUDA 11.8、cuDNN 8.9.7、TensorRT
+8.6.1.6 和 FP32。先使用相同 ONNX Runtime SDK 构建 release runtime：
+
+```powershell
+cd tools\cpp_analyzer
+$env:ONNXRUNTIME_ROOT = "D:\runtime\sm61\onnxruntime-win-x64-gpu-1.17.3"
+xmake f -c -m release --onnxruntime_root=$env:ONNXRUNTIME_ROOT --hid_sdk_root=..\rp2350_hid_bridge_cpp
+xmake
+```
+
+TensorRT 官方 ZIP 需要登录 NVIDIA 并接受许可后手动下载。随后从 C++ 目录组装便携包；
+其余公开依赖可按锁定清单下载并校验 SHA-256：
+
+```powershell
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
+  -File packaging\sm61\build-portable-package.ps1 `
+  -PythonProjectRoot ..\.. `
+  -OrtRoot $env:ONNXRUNTIME_ROOT `
+  -ModelPath ..\..\runs\detect\train\weights\best.onnx `
+  -SchemaPath ..\..\runs\detect\train\weights\best.onnx.schema.json `
+  -SampleVideoPath ..\..\videos\02.mp4 `
+  -TensorRtArchive D:\runtime\sm61\TensorRT-8.6.1.6.Windows10.x86_64.cuda-11.8.zip `
+  -DownloadPublicDependencies
+```
+
+默认输出为父项目的 `dist\cs2-vision-runtime-sm61` 目录及同名 ZIP。包内
+`一键检查并测试.cmd` 始终使用 dry-run，不会标定、移动或点击；真实输出仍需在 Python
+示例中显式增加 `--enable-live-output`。
 
 ## 5. RP2350 HID Bridge C++ SDK
 
@@ -352,6 +409,7 @@ cd tools\rp2350_keymouse_bridge_firmware
 
 ```powershell
 rustup target add thumbv8m.main-none-eabihf
+cargo install elf2uf2-rs --locked
 ```
 
 主机侧单元测试：
@@ -376,6 +434,25 @@ picotool，也不打开串口或发送 HID。
 
 ```text
 target\thumbv8m.main-none-eabihf\release\rp2350-keymouse-bridge-firmware
+```
+
+生成可直接拖入 Pico 2 BOOTSEL 盘符的 UF2：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-release.ps1
+```
+
+脚本会重新执行 release 构建，校验每个 UF2 block，并使用 RP2350 ARM Secure Family ID
+`0xE48BFF59`。它只生成文件，不刷写、不打开串口、不发送 HID。输出为：
+
+```text
+dist\rp2350-keymouse-bridge-firmware.uf2
+```
+
+UF2 构建脚本的无硬件集成检查：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\tests\build-release-uf2.ps1
 ```
 
 开发构建默认 USB VID/PID 为 `0xCAFE:0x2350`。可在编译前用十进制或

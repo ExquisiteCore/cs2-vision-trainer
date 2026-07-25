@@ -24,14 +24,17 @@ Python SDK 用法
   Python 程序 import cs2_vision_runtime，然后调用 vision_runtime.dll
 ```
 
+两种用法互相独立。直接运行 `vision_analyzer.exe` 时不经过 Python SDK；Python 包只是
+给需要在自己程序里嵌入 DLL 的用户准备的可选接口。
+
 你现在最该按这个顺序来：
 
 ```text
 1. 编译 C++ runtime
 2. 确认模型 best.onnx 和 schema 存在
 3. 先用视频 dry-run 看识别和移动规划
-4. 再用 Python SDK 调 DLL
-5. 最后再接 DXGI + 板子
+4. 按需选择 CLI，或者选择 Python SDK 调 DLL
+5. 最后再接 DXGI + 板子并显式解锁输出
 ```
 
 如果你只是想先看 Python 到底怎么调用，直接看这三个脚本：
@@ -259,7 +262,7 @@ frame= 30 target= 1 dx= 12 dy= -3 click= 0 lock= TRACKING
 
 ```powershell
 $env:CS2_VISION_RUNTIME_DLL="D:\project\cs2-vision-trainer\tools\cpp_analyzer\build\windows\x64\release\vision_runtime.dll"
-uv run python .\runtime_video_test.py
+uv run python examples\runtime_video_dryrun.py
 ```
 
 ## 7. 检查 DXGI 屏幕输入
@@ -288,50 +291,14 @@ xmake run vision_analyzer `
 
 ## 8. Python SDK 跑 DXGI dry-run
 
-这个阶段仍然不会动鼠标。
-
-新建：
+这个阶段仍然不会动鼠标，直接使用仓库里的现成脚本：
 
 ```powershell
 cd D:\project\cs2-vision-trainer
-notepad .\runtime_dxgi_test.py
+uv run python examples\runtime_dxgi_dryrun.py --backend opencv-onnx --output 0
 ```
 
-写入：
-
-```python
-from cs2_vision_runtime import VisionRuntime
-
-MODEL = r"D:\project\cs2-vision-trainer\runs\detect\train\weights\best.onnx"
-SCHEMA = r"D:\project\cs2-vision-trainer\runs\detect\train\weights\best.onnx.schema.json"
-
-with VisionRuntime() as rt:
-    rt.set_model(MODEL, schema_path=SCHEMA, backend="opencv-onnx")
-    rt.set_player_side("ct")
-    rt.set_frame_limits(max_frames=300, warmup_frames=3)
-    rt.open_dxgi(output=0, dry_run=True)
-
-    while True:
-        action = rt.process_next()
-        if action is None:
-            break
-
-        if action.frame_index % 30 == 0:
-            print(
-                "frame=", action.frame_index,
-                "target=", int(action.has_target),
-                "dx=", action.dx,
-                "dy=", action.dy,
-                "click=", int(action.click_left),
-                "lock=", action.lock_state.name,
-            )
-```
-
-运行：
-
-```powershell
-uv run python .\runtime_dxgi_test.py
-```
+脚本只调用 DLL 读取 DXGI 和生成规划动作，不设置 HID 端口，也不会解锁真实输出。
 
 ## 9. 检查板子是否能移动鼠标
 
@@ -341,10 +308,20 @@ uv run python .\runtime_dxgi_test.py
 
 ```powershell
 cd D:\project\cs2-vision-trainer\tools\rp2350_keymouse_bridge_firmware\sdk\python
-python examples\list_ports.py
+uv run python examples\list_ports.py
 ```
 
 假设板子是 `COM3`。
+
+如果板子还没有固件，可以在固件仓库生成 Pico 2 BOOTSEL UF2：
+
+```powershell
+cd D:\project\cs2-vision-trainer\tools\rp2350_keymouse_bridge_firmware
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-release.ps1
+```
+
+产物是 `dist\rp2350-keymouse-bridge-firmware.uf2`。这个脚本只生成 UF2，不会刷写；把
+Pico 2 置于 BOOTSEL 后，由你手动复制到板子的盘符。
 
 先只移动，不点击：
 
@@ -355,89 +332,75 @@ xmake run vision_analyzer --hid-port COM3 --test-hid-move 300 0
 
 如果鼠标向右动了，说明板子和 HID SDK 是通的。
 
-## 10. Python SDK 实时 DXGI + 板子移动
+## 10. 实时 DXGI + 板子移动
 
-这个阶段会移动鼠标，但不开火。
+这一阶段会产生真实鼠标移动。可以选 CLI 或 Python SDK，两条路径不需要同时使用。
 
-新建：
+### 10.1 直接使用 C++ CLI（不使用 Python SDK）
+
+先在已经进入对局且画面稳定时标定：
+
+```powershell
+cd D:\project\cs2-vision-trainer\tools\cpp_analyzer
+xmake run vision_analyzer `
+  --calibrate-hid `
+  --hid-port COM3 `
+  --dxgi-output 0 `
+  --calibration-output hid-calibration.txt `
+  --calibration-config-output hid-tuned.cfg
+```
+
+检查生成的 `hid-tuned.cfg`，然后显式增加 `--output-enabled` 启动真实移动：
+
+```powershell
+xmake run vision_analyzer `
+  --config hid-tuned.cfg `
+  --backend opencv-onnx `
+  --model D:\project\cs2-vision-trainer\runs\detect\train\weights\best.onnx `
+  --input dxgi `
+  --dxgi-output 0 `
+  --player-side ct `
+  --hid-port COM3 `
+  --preview `
+  --output-enabled
+```
+
+不加 `--output-enabled` 时只识别和规划，不会向板子发送移动或点击。
+
+### 10.2 使用 Python SDK 调 DLL
+
+现成示例会先做启动标定，再分别管理移动和开火开关：
 
 ```powershell
 cd D:\project\cs2-vision-trainer
-notepad .\runtime_live_move.py
+uv run python examples\runtime_live_move.py `
+  --backend opencv-onnx `
+  --hid-port COM3 `
+  --player-side ct `
+  --enable-live-output
 ```
 
-写入：
-
-```python
-from cs2_vision_runtime import VisionRuntime
-
-MODEL = r"D:\project\cs2-vision-trainer\runs\detect\train\weights\best.onnx"
-SCHEMA = r"D:\project\cs2-vision-trainer\runs\detect\train\weights\best.onnx.schema.json"
-
-with VisionRuntime() as rt:
-    rt.set_model(MODEL, schema_path=SCHEMA, backend="opencv-onnx")
-    rt.set_hid_tuning(gain=0.5, max_step=80, deadzone_px=2.0)
-    rt.set_hid_click(False)
-    rt.open_dxgi(
-        output=0,
-        player_side="ct",
-        hid_port="COM3",
-        dry_run=False,
-    )
-
-    while True:
-        action = rt.process_next()
-        if action is None:
-            break
-
-        if action.frame_index % 30 == 0:
-            print(
-                "frame=", action.frame_index,
-                "target=", int(action.has_target),
-                "dx=", action.dx,
-                "dy=", action.dy,
-                "click=", int(action.click_left),
-                "lock=", action.lock_state.name,
-            )
-```
-
-运行：
-
-```powershell
-uv run python .\runtime_live_move.py
-```
-
-先用低参数：
-
-```text
-gain=0.5
-max_step=80
-deadzone_px=2.0
-```
-
-如果移动太慢，再把 `gain` 提高。
-
-如果移动乱跳，先降低 `gain` 或 `max_step`。
+`--enable-live-output` 是显式硬件授权；不加时脚本会在标定前直接退出。按 `Ctrl+C` 时，
+脚本会在 `finally` 中关闭开火、关闭移动并调用 `stop_all()`。
 
 ## 11. 开启左键
 
-确认移动正常后，再打开点击：
+确认移动和标定正常后，再打开点击。
 
-```python
-rt.set_hid_click(True, cooldown_frames=6)
+CLI 路径在 live 命令中增加：
+
+```text
+--hid-click
 ```
 
-也就是把：
+Python 示例增加：
 
-```python
-rt.set_hid_click(False)
+```text
+--click
 ```
 
-改成：
-
-```python
-rt.set_hid_click(True, cooldown_frames=6)
-```
+Python SDK 的移动与开火是两个独立开关：`set_output_enabled(True)` 只解锁移动，
+`set_fire_enabled(True)` 才解锁自动开火。退出时必须分别关闭并执行 `stop_all()`。
 
 ## 12. 最常见的问题
 
@@ -495,7 +458,10 @@ output 是否选错
 
 ### 鼠标能动，但方向或幅度不对
 
-先只调这三个：
+先回到稳定画面重新运行启动标定。标定质量差时不要继续 live 输出；确认 DXGI output、
+分辨率、鼠标灵敏度和窗口状态没有变化。
+
+需要手工微调旧的标量参数时再使用：
 
 ```python
 rt.set_hid_tuning(gain=0.5, max_step=80, deadzone_px=2.0)
@@ -512,7 +478,7 @@ rt.set_hid_tuning(gain=0.5, max_step=80, deadzone_px=2.0)
 
 ## 13. 你现在最短应该跑哪几条
 
-如果你只想确认 Python SDK 能不能用，按这几条：
+如果你只使用 C++ CLI，按这几条即可，不需要 Python SDK：
 
 ```powershell
 cd D:\project\cs2-vision-trainer
@@ -521,9 +487,18 @@ uv sync --extra dev
 cd tools\cpp_analyzer
 xmake f -m release
 xmake
+xmake run vision_analyzer_tests
 xmake run vision_runtime_c_api_tests
 
-cd ..\..
+xmake run vision_analyzer --video D:\project\cs2-vision-trainer\videos\02.mp4 --verify-input
+```
+
+如果还要确认可选 Python SDK 与真实 DLL 兼容，再执行：
+
+```powershell
+cd D:\project\cs2-vision-trainer
+$env:CS2_VISION_RUNTIME_DLL="D:\project\cs2-vision-trainer\tools\cpp_analyzer\build\windows\x64\release\vision_runtime.dll"
+
 uv run pytest tests\test_vision_runtime_sdk.py
 uv run python -c "from cs2_vision_runtime import VisionRuntime; rt=VisionRuntime(); rt.close(); print('ok')"
 ```

@@ -1,5 +1,6 @@
 import ctypes
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,24 @@ from cs2_vision_runtime.runtime import (
     VisionRuntime,
 )
 from cs2_vision_runtime import LockState
+
+
+def test_python_runtime_c_api_matches_pinned_cpp_header():
+    project_root = Path(__file__).resolve().parents[1]
+    python_source = (project_root / "src" / "cs2_vision_runtime" / "runtime.py").read_text(encoding="utf-8")
+    cpp_header = (
+        project_root
+        / "tools"
+        / "cpp_analyzer"
+        / "include"
+        / "vision_analyzer"
+        / "vision_runtime_c_api.h"
+    ).read_text(encoding="utf-8")
+
+    required = set(re.findall(r"\bva_[a-z0-9_]+", python_source))
+    declared = set(re.findall(r"\bva_[a-z0-9_]+(?=\s*\()", cpp_header))
+
+    assert required <= declared, f"Python wrapper requires missing C API exports: {sorted(required - declared)}"
 
 
 class FakeApi:

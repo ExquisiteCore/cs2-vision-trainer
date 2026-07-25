@@ -75,7 +75,7 @@ git submodule status --recursive
 - C++ runtime 使用 xmake 编译、测试、视频输入验证和 DXGI 输入验证。
 - C++ SDK 使用 CMake 编译测试。
 - Python SDK 安装和单元测试。
-- RP2350 固件 Rust 交叉编译、build-only 验证、显式 picotool 烧录方式。
+- RP2350 固件 Rust 交叉编译、Pico 2 UF2 打包、build-only 验证和显式烧录方式。
 
 第一次使用建议先看 [docs/USAGE.md](docs/USAGE.md)，它按实际操作顺序写，从编译
 DLL、跑视频 dry-run、Python SDK 调用，到 DXGI 和板子移动。
@@ -164,18 +164,21 @@ xmake run vision_analyzer --backend opencv-onnx --model D:\project\cs2-vision-tr
 xmake run vision_analyzer --hid-port COM3 --test-hid-move 300 0
 ```
 
-live 模式示例：
+live 模式示例（`--output-enabled` 是实际移动的显式解锁开关）：
 
 ```powershell
-xmake run vision_analyzer --backend opencv-onnx --model D:\project\cs2-vision-trainer\runs\detect\train\weights\best.onnx --input dxgi --dxgi-output 0 --player-side ct --hid-port COM3 --hid-gain 1.0 --hid-max-step 120 --preview
+xmake run vision_analyzer --backend opencv-onnx --model D:\project\cs2-vision-trainer\runs\detect\train\weights\best.onnx --input dxgi --dxgi-output 0 --player-side ct --hid-port COM3 --hid-gain 1.0 --hid-max-step 120 --preview --output-enabled
 ```
 
-启用左键输出需要额外传 `--hid-click`。调试阶段建议先不加该参数。
+启用左键输出需要额外传 `--hid-click`。调试阶段建议先不加该参数；不传
+`--output-enabled` 时，runtime 仍会识别和规划，但不会向 RP2350 发送真实移动或点击。
 
 ## Python 调用 C++ Runtime
 
 C++ runtime 也可以编译为 `vision_runtime.dll`，然后通过 Python SDK
 `cs2_vision_runtime` 被其他程序直接调用，不需要启动 `vision_analyzer.exe`。
+Python SDK 是可选集成方式；如果你的程序直接运行 `vision_analyzer.exe`，不需要安装或
+调用这个 Python 包，但父仓仍会维护它与 DLL 的接口兼容性。
 
 编译 DLL：
 
@@ -241,6 +244,8 @@ $env:CS2_VISION_RUNTIME_DLL="D:\path\to\vision_runtime.dll"
 
 当 DLL 位于便携包的 `app` 目录时，包装层会自动注册包内的 TensorRT、cuDNN、
 CUDA 和 MSVC 私有 DLL 目录，不需要修改系统 PATH 或安装完整 CUDA Toolkit。
+GTX 1080 Ti/SM61 便携包的构建命令见 [docs/BUILD.md](docs/BUILD.md)，包内的一键诊断
+始终是 dry-run，不会自动解锁 RP2350 输出。
 
 ## 固件和 SDK
 
@@ -271,10 +276,12 @@ guarded work 时 lease 到期都会取消活动操作并 best-effort 释放全�
 已经发出的物理 HID report 不能回滚。`STOP_ALL` 可在等待、逐字符、分段移动、延时与
 Batch 命令的 cooperative boundary 取消，丢弃尚未执行的 Batch 内容并释放输入。
 
-`cargo build --release` 只生成固件，不刷写、不打开串口、不发送 HID。刷写必须单独、
-显式调用固件仓库的 `tools\flash.ps1`（省略 `-ResolveOnly` 才会执行 picotool）。自动化
-测试只能使用纯逻辑/fake transport，禁止刷写或发送真实 HID；本次文档验证也不执行
-任何刷写、串口或 HID 动作。完整命令见 [docs/BUILD.md](docs/BUILD.md)。
+`cargo build --release` 只生成 ELF 固件，不刷写、不打开串口、不发送 HID。需要供 Pico 2
+BOOTSEL 拖放的 UF2 时，运行固件仓库的 `tools\build-release.ps1`，产物为
+`dist\rp2350-keymouse-bridge-firmware.uf2`。刷写必须单独、显式调用 `tools\flash.ps1`
+（省略 `-ResolveOnly` 才会执行 picotool）。自动化测试只能使用纯逻辑/fake transport，
+禁止刷写或发送真实 HID；本次文档验证也不执行任何刷写、串口或 HID 动作。完整命令见
+[docs/BUILD.md](docs/BUILD.md)。
 
 ## 本地数据和模型
 
