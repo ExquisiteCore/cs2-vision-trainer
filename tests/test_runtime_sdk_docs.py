@@ -73,6 +73,10 @@ def test_python_runtime_sdk_guide_covers_frozen_client_contract():
 
 def test_top_level_docs_link_to_the_complete_python_sdk_guide():
     link = "docs/PYTHON_RUNTIME_SDK_INTEGRATION.md"
+    readme = _read("README.md")
+    usage = _read("docs/USAGE.md")
 
-    assert link in _read("README.md")
-    assert "PYTHON_RUNTIME_SDK_INTEGRATION.md" in _read("docs/USAGE.md")
+    assert link in readme
+    assert "PYTHON_RUNTIME_SDK_INTEGRATION.md" in usage
+    assert "2048 counts" not in readme
+    assert "2048 counts" not in usage

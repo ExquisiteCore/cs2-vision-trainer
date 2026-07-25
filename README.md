@@ -246,9 +246,9 @@ with VisionRuntime() as rt:
 `examples/runtime_live_move.py`；它用 `--calibration-path` 选择文件，用 `--recalibrate`
 明确重标定。真实输出必须显式增加 `--enable-live-output`，自动开火还需增加 `--click`。
 
-标定测量使用上方多个纹理区域的一致位移，排除下方武器/HUD和中央准星。单个坏帧会在
-原档重试，中高档仍不可用时只向下寻找较小档位。探测阶段最高可到 2048 counts，正常
-运行始终限制为 `max_step=120`。如果两轮探测都没有 coherent 视觉移动，API 返回明确的
+标定使用中心 ROI 多区域光流测量一致的场景位移，避开下方武器/HUD并过滤静态准星。
+探测、采样和正常运行都限制在最多 120 counts（`max_step=120`）；每次移出后立即精确
+反向归位。如果范围内没有可靠的视觉移动，API 返回明确的
 `HID calibration input not ready`，并保留此前有效的内存和文件 profile。
 
 如果 DLL 不在默认构建目录，可以指定环境变量：
