@@ -24,6 +24,10 @@ Python SDK 用法
   Python 程序 import cs2_vision_runtime，然后调用 vision_runtime.dll
 ```
 
+需要把 SDK 冻结进调用端 EXE 并部署 app-local 模型/TensorRT 环境时，请使用完整的
+[Python Runtime SDK 接入指南](PYTHON_RUNTIME_SDK_INTEGRATION.md)。本页其余命令主要用于
+源码开发、逐项诊断和硬件验收。
+
 两种用法互相独立。直接运行 `vision_analyzer.exe` 时不经过 Python SDK；Python 包只是
 给需要在自己程序里嵌入 DLL 的用户准备的可选接口。
 

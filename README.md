@@ -175,6 +175,10 @@ xmake run vision_analyzer --backend opencv-onnx --model D:\project\cs2-vision-tr
 
 ## Python 调用 C++ 运行时
 
+冻结为调用端 EXE、部署同级 DLL/模型/TensorRT 环境以及安全调用的正式流程，请直接阅读
+[Python Runtime SDK 接入指南](docs/PYTHON_RUNTIME_SDK_INTEGRATION.md)。下文手工 DLL、
+模型路径和环境变量只用于源码开发与诊断。
+
 C++ 运行时也可以编译为 `vision_runtime.dll`，然后通过 Python SDK
 `cs2_vision_runtime` 被其他程序直接调用，不需要启动 `vision_analyzer.exe`。
 Python SDK 是可选集成方式；如果你的程序直接运行 `vision_analyzer.exe`，不需要安装或

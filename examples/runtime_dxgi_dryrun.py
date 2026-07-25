@@ -18,6 +18,16 @@ def require_file(path: Path, label: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Use Python SDK to run DXGI screen capture without moving the mouse.")
+    parser.add_argument(
+        "--app-dir",
+        type=Path,
+        help="frozen client directory containing vision_runtime.dll and resources",
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        help="caller-owned writable data directory; required with --app-dir",
+    )
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
     parser.add_argument("--backend", default="opencv-onnx")
@@ -28,11 +38,29 @@ def main() -> None:
     parser.add_argument("--show-every", type=int, default=30)
     args = parser.parse_args()
 
-    require_file(args.model, "ONNX 模型")
-    require_file(args.schema, "模型 schema")
+    if args.app_dir is not None and args.data_dir is None:
+        parser.error("--data-dir is required with --app-dir")
 
-    with VisionRuntime() as runtime:
-        runtime.set_model(args.model, schema_path=args.schema, backend=args.backend)
+    if args.app_dir is not None:
+        runtime = VisionRuntime.from_app_dir(
+            args.app_dir.resolve(),
+            data_dir=args.data_dir.resolve(),
+        )
+    else:
+        require_file(args.model, "ONNX 模型")
+        require_file(args.schema, "模型 schema")
+        runtime = VisionRuntime()
+        try:
+            runtime.set_model(
+                args.model,
+                schema_path=args.schema,
+                backend=args.backend,
+            )
+        except BaseException:
+            runtime.close()
+            raise
+
+    with runtime:
         runtime.set_frame_limits(max_frames=args.max_frames, warmup_frames=3)
         runtime.open_dxgi(
             adapter=args.adapter,
@@ -44,11 +72,7 @@ def main() -> None:
         print("Python 已经通过 C++ DLL 打开 DXGI 屏幕输入。")
         print("dry_run=True，所以这里只打印规划结果，不会移动鼠标。")
 
-        while True:
-            action = runtime.process_next()
-            if action is None:
-                break
-
+        for action in runtime.iter_actions():
             if action.frame_index % args.show_every == 0:
                 print(
                     f"frame={action.frame_index} "
