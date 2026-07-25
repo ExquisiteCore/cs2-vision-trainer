@@ -72,7 +72,7 @@ SDK只自动选择TensorRT缓存子目录。标定文件仍由调用端按自己
 
 规范开发交付物：
 
-- `cs2_vision_runtime-<version>-py3-none-win_amd64.whl`：调用端构建依赖。
+- `cs2_vision_runtime-<version>-py3-none-any.whl`：调用端构建依赖；SDK加载运行时时仍严格要求Windows x64。
 - `vision_runtime.dll`：最终与调用端EXE同级。
 - `resources/vision-runtime/`：模型、原生依赖、配置、许可证和清单。
 - `PYTHON_SDK_INTEGRATION.md`：面向调用端开发者的完整中文接入指南。
