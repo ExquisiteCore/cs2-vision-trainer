@@ -202,8 +202,12 @@ with VisionRuntime() as rt:
     )
     rt.set_hid_port("COM3")
 
-    # 进入对局并保持画面稳定后，每次启动调用一次。
-    profile = rt.calibrate_hid(adapter=0, output=0)
+    # 调用端选择一个文件。有效缓存加载时不会产生标定移动。
+    rt.set_hid_calibration_path("hid-calibration.json")
+    profile = rt.get_hid_calibration()
+    if not profile.valid:
+        # 仅第一次或调用端主动清空/切换路径后标定。
+        profile = rt.calibrate_hid(adapter=0, output=0)
     print(profile.quality, profile.x_counts_per_pixel, profile.y_counts_per_pixel)
 
     rt.set_fire_policy(
@@ -232,9 +236,16 @@ with VisionRuntime() as rt:
 ```
 
 `set_output_enabled` 与 `set_fire_enabled` 是两个独立开关。新建运行时默认都关闭；
-标定是普通输出关闭时唯一允许发送的受控测试移动。标定失败不会安装部分曲线，
-请等画面稳定后重试。完整命令行示例见 `examples/runtime_live_move.py`，真实输出必须
-显式增加 `--enable-live-output`，自动开火还需增加 `--click`。
+标定是普通输出关闭时唯一允许发送的受控测试移动。成功 profile 会原子保存；损坏文件、
+失败保存和失败重标定都不会替换旧 profile。DLL 不识别账号，也不自动判断设置变化：
+调用端需要重标定时显式再次调用 `calibrate_hid()`。完整命令行示例见
+`examples/runtime_live_move.py`；它用 `--calibration-path` 选择文件，用 `--recalibrate`
+明确重标定。真实输出必须显式增加 `--enable-live-output`，自动开火还需增加 `--click`。
+
+标定测量使用上方多个纹理区域的一致位移，排除下方武器/HUD和中央准星。单个坏帧会在
+原档重试，中高档仍不可用时只向下寻找较小档位。探测阶段最高可到 2048 counts，正常
+运行始终限制为 `max_step=120`。如果两轮探测都没有 coherent 视觉移动，API 返回明确的
+`HID calibration input not ready`，并保留此前有效的内存和文件 profile。
 
 如果 DLL 不在默认构建目录，可以指定环境变量：
 
