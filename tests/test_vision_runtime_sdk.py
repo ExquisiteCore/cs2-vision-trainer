@@ -1,7 +1,9 @@
 import ctypes
 import importlib.util
+import os
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,10 +20,14 @@ from cs2_vision_runtime import LockState
 def test_python_runtime_c_api_matches_pinned_cpp_header():
     project_root = Path(__file__).resolve().parents[1]
     python_source = (project_root / "src" / "cs2_vision_runtime" / "runtime.py").read_text(encoding="utf-8")
+    cpp_analyzer_root = Path(
+        os.environ.get(
+            "CS2_VISION_CPP_ANALYZER_ROOT",
+            project_root / "tools" / "cpp_analyzer",
+        )
+    )
     cpp_header = (
-        project_root
-        / "tools"
-        / "cpp_analyzer"
+        cpp_analyzer_root
         / "include"
         / "vision_analyzer"
         / "vision_runtime_c_api.h"
@@ -73,6 +79,15 @@ class FakeApi:
         self.calls.append(("set_hid_port", port))
         return 0
 
+    def set_hid_calibration_path(self, handle, path):
+        self.calls.append(("set_hid_calibration_path", path))
+        return 0
+
+    def get_hid_calibration(self, handle, profile):
+        self.calls.append(("get_hid_calibration",))
+        self._fill_calibration_profile(profile)
+        return 0
+
     def set_dry_run(self, handle, dry_run):
         self.calls.append(("set_dry_run", dry_run))
         return 0
@@ -91,6 +106,11 @@ class FakeApi:
 
     def calibrate_hid(self, handle, adapter, output, profile):
         self.calls.append(("calibrate_hid", adapter, output))
+        self._fill_calibration_profile(profile)
+        return 0
+
+    @staticmethod
+    def _fill_calibration_profile(profile):
         profile.schema_version = 1
         profile.valid = 1
         profile.frame_width = 1920
@@ -104,7 +124,6 @@ class FakeApi:
         profile.noise_px = 0.25
         profile.quality = 0.9
         profile.accepted_samples = 24
-        return 0
 
     def set_hid_click(self, handle, enabled, cooldown_frames):
         self.calls.append(("set_hid_click", enabled, cooldown_frames))
@@ -280,6 +299,77 @@ def test_runtime_converts_calibration_profile():
     assert profile.y_counts_per_pixel[0] < 0.0
     assert profile.accepted_samples == 24
     assert ("calibrate_hid", 1, 2) in api.calls
+
+
+def test_runtime_loads_and_reads_persistent_calibration(tmp_path):
+    api = FakeApi()
+    runtime = VisionRuntime(_api=api)
+    path = tmp_path / "hid-calibration.json"
+
+    runtime.set_hid_calibration_path(path)
+    profile = runtime.get_hid_calibration()
+
+    assert ("set_hid_calibration_path", os.fsencode(path)) in api.calls
+    assert ("get_hid_calibration",) in api.calls
+    assert profile.valid is True
+    assert profile.max_step == 120
+    assert profile.accepted_samples == 24
+
+
+def test_runtime_calibration_path_failure_uses_last_error(tmp_path):
+    api = FakeApi()
+    runtime = VisionRuntime(_api=api)
+    api.error = "corrupt HID calibration profile"
+    api.set_hid_calibration_path = lambda handle, path: -1
+
+    with pytest.raises(RuntimeError, match="corrupt"):
+        runtime.set_hid_calibration_path(tmp_path / "bad.json")
+
+
+def test_live_example_uses_cache_unless_recalibration_is_explicit(tmp_path):
+    example_path = Path(__file__).parents[1] / "examples" / "runtime_live_move.py"
+    spec = importlib.util.spec_from_file_location("runtime_live_move_cache", example_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class CacheRuntime:
+        def __init__(self):
+            self.calls = []
+
+        def set_hid_calibration_path(self, path):
+            self.calls.append(("path", Path(path)))
+
+        def get_hid_calibration(self):
+            self.calls.append(("get",))
+            return SimpleNamespace(valid=True, quality=0.8, noise_px=0.01, accepted_samples=24)
+
+        def calibrate_hid(self, *, adapter, output):
+            self.calls.append(("calibrate", adapter, output))
+            return SimpleNamespace(valid=True, quality=0.9, noise_px=0.01, accepted_samples=24)
+
+    path = tmp_path / "hid-calibration.json"
+    runtime = CacheRuntime()
+    cached = module.load_or_calibrate(
+        runtime,
+        path,
+        recalibrate=False,
+        adapter=1,
+        output=2,
+    )
+    assert cached.quality == 0.8
+    assert runtime.calls == [("path", path), ("get",)]
+
+    runtime = CacheRuntime()
+    refreshed = module.load_or_calibrate(
+        runtime,
+        path,
+        recalibrate=True,
+        adapter=1,
+        output=2,
+    )
+    assert refreshed.quality == 0.9
+    assert runtime.calls == [("path", path), ("get",), ("calibrate", 1, 2)]
 
 
 def test_calibration_failure_uses_last_error():

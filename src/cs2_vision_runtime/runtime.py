@@ -225,6 +225,7 @@ class _RuntimeApi:
             "va_set_backend",
             "va_set_player_side",
             "va_set_hid_port",
+            "va_set_hid_calibration_path",
         ]:
             function = getattr(dll, name)
             function.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
@@ -265,6 +266,11 @@ class _RuntimeApi:
             ctypes.POINTER(_CCalibrationProfile),
         ]
         dll.va_calibrate_hid.restype = ctypes.c_int32
+        dll.va_get_hid_calibration.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(_CCalibrationProfile),
+        ]
+        dll.va_get_hid_calibration.restype = ctypes.c_int32
         dll.va_process_next.argtypes = [ctypes.c_void_p, ctypes.POINTER(_CAction)]
         dll.va_process_next.restype = ctypes.c_int32
         dll.va_stop_all.argtypes = [ctypes.c_void_p]
@@ -299,6 +305,16 @@ class _RuntimeApi:
 
     def set_hid_port(self, handle: int, port: Optional[bytes]) -> int:
         return int(self._dll.va_set_hid_port(handle, port))
+
+    def set_hid_calibration_path(self, handle: int, path: bytes) -> int:
+        return int(self._dll.va_set_hid_calibration_path(handle, path))
+
+    def get_hid_calibration(
+        self,
+        handle: int,
+        profile: _CCalibrationProfile,
+    ) -> int:
+        return int(self._dll.va_get_hid_calibration(handle, ctypes.byref(profile)))
 
     def set_dry_run(self, handle: int, dry_run: bool) -> int:
         return int(self._dll.va_set_dry_run(handle, int(dry_run)))
@@ -426,6 +442,24 @@ class VisionRuntime:
 
     def set_hid_port(self, port: str | None) -> None:
         self._check(self._api.set_hid_port(self._require_handle(), None if port is None else port.encode("utf-8")))
+
+    def set_hid_calibration_path(self, path: str | os.PathLike[str]) -> None:
+        self._check(
+            self._api.set_hid_calibration_path(
+                self._require_handle(),
+                _encode_path(path),
+            )
+        )
+
+    def get_hid_calibration(self) -> HidCalibrationProfile:
+        profile = _CCalibrationProfile()
+        self._check(
+            self._api.get_hid_calibration(
+                self._require_handle(),
+                profile,
+            )
+        )
+        return HidCalibrationProfile.from_c(profile)
 
     def set_dry_run(self, dry_run: bool) -> None:
         self._check(self._api.set_dry_run(self._require_handle(), dry_run))

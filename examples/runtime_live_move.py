@@ -11,6 +11,7 @@ PACKAGE_MODEL = ROOT / "model" / "best.onnx"
 PACKAGE_SCHEMA = ROOT / "model" / "best.onnx.schema.json"
 DEFAULT_MODEL = PACKAGE_MODEL if PACKAGE_MODEL.exists() else ROOT / "runs" / "detect" / "train" / "weights" / "best.onnx"
 DEFAULT_SCHEMA = PACKAGE_SCHEMA if PACKAGE_SCHEMA.exists() else ROOT / "runs" / "detect" / "train" / "weights" / "best.onnx.schema.json"
+DEFAULT_CALIBRATION_PATH = ROOT / "hid-calibration.json"
 
 
 def require_file(path: Path, label: str) -> None:
@@ -51,6 +52,23 @@ def run_armed_loop(
                 runtime.stop_all()
 
 
+def load_or_calibrate(
+    runtime: VisionRuntime,
+    calibration_path: Path,
+    *,
+    recalibrate: bool,
+    adapter: int,
+    output: int,
+):
+    runtime.set_hid_calibration_path(calibration_path)
+    cached = runtime.get_hid_calibration()
+    if cached.valid and not recalibrate:
+        print(f"已加载本地标定，不移动鼠标: {calibration_path}")
+        return cached
+    print("开始调用 DLL 标定；成功后会原子保存到本地……")
+    return runtime.calibrate_hid(adapter=adapter, output=output)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Use Python SDK to run DXGI live movement through the RP2350 board.")
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
@@ -60,6 +78,17 @@ def main() -> None:
     parser.add_argument("--output", type=int, default=0)
     parser.add_argument("--player-side", choices=["ct", "t"], default="ct")
     parser.add_argument("--hid-port", required=True, help="board serial port, for example COM3")
+    parser.add_argument(
+        "--calibration-path",
+        type=Path,
+        default=DEFAULT_CALIBRATION_PATH,
+        help="调用端选择的单个本地标定文件",
+    )
+    parser.add_argument(
+        "--recalibrate",
+        action="store_true",
+        help="由调用端显式要求忽略有效缓存并重新标定",
+    )
     parser.add_argument("--click", action="store_true", help="让 DLL 自动开火")
     parser.add_argument(
         "--enable-live-output",
@@ -79,8 +108,14 @@ def main() -> None:
     with VisionRuntime() as runtime:
         runtime.set_model(args.model, schema_path=args.schema, backend=args.backend)
         runtime.set_hid_port(args.hid_port)
-        print("请保持在已进入对局且画面稳定的场景，开始约 3–5 秒启动标定……")
-        profile = runtime.calibrate_hid(adapter=args.adapter, output=args.output)
+        print("正在读取调用端指定的本地标定；仅在缺失或显式重标定时移动视角……")
+        profile = load_or_calibrate(
+            runtime,
+            args.calibration_path,
+            recalibrate=args.recalibrate,
+            adapter=args.adapter,
+            output=args.output,
+        )
         print(
             f"标定完成 quality={profile.quality:.3f} noise={profile.noise_px:.3f} "
             f"samples={profile.accepted_samples}"
