@@ -94,7 +94,7 @@ uv run pytest
 
 看到 `passed` 就行。
 
-## 3. 编译 C++ runtime
+## 3. 编译 C++ 运行时
 
 进入 C++ 目录：
 
@@ -289,7 +289,7 @@ xmake run vision_analyzer `
 
 能输出宽高和 RGB 均值，就说明屏幕输入通了。
 
-## 8. Python SDK 跑 DXGI dry-run
+## 8. 使用 Python SDK 进行 DXGI 试运行
 
 这个阶段仍然不会动鼠标，直接使用仓库里的现成脚本：
 
@@ -387,7 +387,7 @@ uv run python examples\runtime_live_move.py `
 
 确认移动和标定正常后，再打开点击。
 
-CLI 路径在 live 命令中增加：
+CLI 路径在实时命令中增加：
 
 ```text
 --hid-click
@@ -420,7 +420,7 @@ xmake build vision_runtime
 $env:CS2_VISION_RUNTIME_DLL="D:\project\cs2-vision-trainer\tools\cpp_analyzer\build\windows\x64\release\vision_runtime.dll"
 ```
 
-### 缺少 schema
+### 缺少模型结构说明文件
 
 重新导出 ONNX：
 
@@ -458,7 +458,7 @@ output 是否选错
 
 ### 鼠标能动，但方向或幅度不对
 
-先回到稳定画面重新运行启动标定。标定质量差时不要继续 live 输出；确认 DXGI output、
+先回到稳定画面重新运行启动标定。标定质量差时不要继续实时输出；确认 DXGI 输出、
 分辨率、鼠标灵敏度和窗口状态没有变化。
 
 需要手工微调旧的标量参数时再使用：

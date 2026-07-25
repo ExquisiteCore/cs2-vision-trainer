@@ -1,4 +1,4 @@
-# Build Guide
+# 构建指南
 
 本文档说明主仓库和所有子仓库的编译、测试和验证方式。命令默认在 Windows
 PowerShell 中执行。
@@ -27,7 +27,7 @@ ONNX Runtime GPU
 TensorRT
 ```
 
-C++ runtime 默认可以使用 `opencv-onnx` 后端，不要求 CUDA、ONNX Runtime 或
+C++ 运行时默认可以使用 `opencv-onnx` 后端，不要求 CUDA、ONNX Runtime 或
 TensorRT。GPU 后端只在需要加速时配置。
 
 ## 2. 拉取源码
@@ -101,14 +101,14 @@ uv run --extra dev cs2-vision-trainer export `
   --imgsz 640
 ```
 
-导出后 C++ runtime 通常使用：
+导出后 C++ 运行时通常使用：
 
 ```text
 runs\detect\train\weights\best.onnx
 runs\detect\train\weights\best.onnx.schema.json
 ```
 
-## 4. C++ Runtime
+## 4. C++ 运行时
 
 目录：
 
@@ -172,7 +172,7 @@ xmake run vision_analyzer --probe-dxgi-outputs
 xmake run vision_analyzer --input dxgi --dxgi-adapter 0 --dxgi-output 0 --verify-input --dxgi-debug
 ```
 
-视频 dry-run：
+视频试运行：
 
 ```powershell
 xmake run vision_analyzer `
@@ -191,7 +191,7 @@ xmake run vision_analyzer `
 xmake run vision_analyzer --hid-port COM3 --test-hid-move 300 0
 ```
 
-live DXGI 运行：
+实时 DXGI 运行：
 
 ```powershell
 xmake run vision_analyzer `
@@ -222,21 +222,21 @@ xmake run vision_analyzer `
   --output-enabled
 ```
 
-live HID 模式要求模型旁边存在 schema，例如：
+实时 HID 模式要求模型旁边存在模型结构说明文件，例如：
 
 ```text
 best.onnx.schema.json
 ```
 
-否则 runtime 会拒绝启动，避免类别顺序不一致。
+否则运行时会拒绝启动，避免类别顺序不一致。
 
-## 4.1 Python SDK 调用 Runtime DLL
+## 4.1 Python SDK 调用运行时 DLL
 
 主仓库提供 `cs2_vision_runtime` Python 包。它通过 `ctypes` 加载
 `vision_runtime.dll`，适合给其他 Python 程序直接集成。
 这是可选调用方式；直接使用 `vision_analyzer.exe` 的程序不需要 Python SDK。
 
-最小 dry-run 示例：
+最小试运行示例：
 
 ```python
 from cs2_vision_runtime import VisionRuntime
@@ -256,7 +256,7 @@ with VisionRuntime() as runtime:
         print(action.frame_index, action.dx, action.dy, action.click_left)
 ```
 
-DXGI live 示例：
+DXGI 实时示例：
 
 ```python
 from cs2_vision_runtime import VisionRuntime
@@ -289,7 +289,7 @@ with VisionRuntime() as runtime:
         runtime.stop_all()
 ```
 
-新建 runtime 的移动和开火开关默认关闭。`calibrate_hid()` 是启动时受控标定；正常 live
+新建运行时的移动和开火开关默认关闭。`calibrate_hid()` 是启动时受控标定；正常实时
 输出仍必须显式调用 `set_output_enabled(True)`，自动开火还必须单独调用
 `set_fire_enabled(True)`。推荐直接运行 `examples\runtime_live_move.py`：
 
@@ -312,7 +312,7 @@ tools\cpp_analyzer\build\windows\x64\debug\vision_runtime.dll
 ## 4.2 GTX 1080 Ti / SM61 便携包
 
 便携包固定使用 ONNX Runtime GPU 1.17.3、CUDA 11.8、cuDNN 8.9.7、TensorRT
-8.6.1.6 和 FP32。先使用相同 ONNX Runtime SDK 构建 release runtime：
+8.6.1.6 和 FP32。先使用相同 ONNX Runtime SDK 构建 Release 运行时：
 
 ```powershell
 cd tools\cpp_analyzer
@@ -337,10 +337,10 @@ powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
 ```
 
 默认输出为父项目的 `dist\cs2-vision-runtime-sm61` 目录及同名 ZIP。包内
-`一键检查并测试.cmd` 始终使用 dry-run，不会标定、移动或点击；真实输出仍需在 Python
+`一键检查并测试.cmd` 始终使用试运行模式，不会标定、移动或点击；真实输出仍需在 Python
 示例中显式增加 `--enable-live-output`。
 
-## 5. RP2350 HID Bridge C++ SDK
+## 5. RP2350 HID 桥接器 C++ SDK
 
 目录：
 
@@ -351,19 +351,19 @@ cd tools\rp2350_hid_bridge_cpp
 独立编译和测试：
 
 ```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake -S . -B build
 cmake --build build --config Release
 .\build\Release\test_protocol.exe
 ```
 
-这个 SDK 是 header-only。其他 CMake 项目可以这样引用：
+这个 SDK 仅包含头文件。其他 CMake 项目可以这样引用：
 
 ```cmake
 add_subdirectory(path/to/rp2350-hid-bridge-cpp)
 target_link_libraries(your_app PRIVATE rp2350_hid_bridge)
 ```
 
-## 6. RP2350 HID Bridge Python SDK
+## 6. RP2350 HID 桥接器 Python SDK
 
 目录：
 
@@ -418,7 +418,7 @@ cargo install elf2uf2-rs --locked
 cargo test --target x86_64-pc-windows-msvc --lib
 ```
 
-这些测试只运行纯协议/状态逻辑和 fake transport。自动化测试禁止调用 picotool、刷写
+这些测试只运行纯协议/状态逻辑和模拟传输层。自动化测试禁止调用 picotool、刷写
 板子、选择串口或发送真实 HID；硬件验收必须另行人工授权。
 
 固件编译：
@@ -442,7 +442,7 @@ target\thumbv8m.main-none-eabihf\release\rp2350-keymouse-bridge-firmware
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\build-release.ps1
 ```
 
-脚本会重新执行 release 构建，校验每个 UF2 block，并使用 RP2350 ARM Secure Family ID
+脚本会重新执行 Release 构建，校验每个 UF2 块，并使用 RP2350 ARM Secure family ID
 `0xE48BFF59`。它只生成文件，不刷写、不打开串口、不发送 HID。输出为：
 
 ```text
@@ -464,9 +464,9 @@ $env:RP2350_USB_PID = "0x5678"
 cargo build --release
 ```
 
-生产分发必须使用合法分配的 USB 标识。启动时固件读取 RP2350 OTP chip ID，将 USB
-serial 格式化为 `EXQC-KMOUSE-` 加 16 位大写十六进制数。当前实现没有固定或伪造的
-fallback serial：`embassy_rp::otp::get_chipid()` 失败会在 USB 枚举前 panic。
+生产分发必须使用合法分配的 USB 标识。启动时固件读取 RP2350 OTP 芯片 ID，将 USB
+序列号格式化为 `EXQC-KMOUSE-` 加 16 位大写十六进制数。当前实现没有固定或伪造的
+备用序列号：`embassy_rp::otp::get_chipid()` 失败会在 USB 枚举前触发 panic。
 
 `.cargo\config.toml` 的 runner 委托给 `tools\flash.ps1`。脚本优先使用
 `PICOTOOL_PATH`，否则从 `PATH` 解析 `picotool`。以下命令只校验已有产物并输出工具
@@ -489,28 +489,26 @@ runner，因此属于刷写动作，不是构建或测试命令；本文验证�
 
 ### 7.1 协议 v2 与键盘状态
 
-固件默认使用协议 v2，并继续接受 `flags=0`、非零 sequence 的有效 v1 请求作为基础
-兼容。v1 `GET_CAPS` 只报告键盘、鼠标、ASCII 和 Batch 基础能力，不承诺 v2 的安全
-重试、lease 或 cancellation；v2 的 sequence 0 与 `NO_RESPONSE` 仅用于 heartbeat。
+固件默认使用协议 v2，并继续接受 `flags=0`、序列号非零的有效 v1 请求作为基础兼容。
+v1 `GET_CAPS` 只报告键盘、鼠标、ASCII 和批处理基础能力，不承诺 v2 的安全重试、
+租约或取消保证；v2 的序列号 0 与 `NO_RESPONSE` 仅用于心跳。
 
-键盘状态保存 8 个 modifier 位与最多 6 个不同的非 modifier keycode。`keycode=0`
-表示 modifier-only 操作，可单独按下/释放 Shift、Ctrl、Alt 或 GUI。第 7 个不同普通键
-会被事务式拒绝，按键数组和同一请求携带的 modifier 都保持原状；`KEY_UP` 只清除请求
-指定的键和 modifier 位。
+键盘状态保存 8 个修饰位与最多 6 个不同的非修饰键码。`keycode=0` 表示纯修饰键操作，
+可单独按下/释放 Shift、Ctrl、Alt 或 GUI。第 7 个不同普通键会被事务式拒绝，按键数组
+和同一请求携带的修饰位都保持原状；`KEY_UP` 只清除请求指定的键和修饰位。
 
-### 7.2 Heartbeat、DTR、Batch 与 STOP
+### 7.2 心跳、DTR、批处理与 STOP
 
-v2 客户端打开连接后每 500 ms 发送一次无响应 heartbeat；有效 v2 流量刷新 2 秒
-control lease。只有存在 held input、正在收集/执行的 Batch 或活跃长操作时，lease 到期
-才触发取消和全输入释放。DTR 下降沿或 USB disable 触发同样的 session reset；v1
-流量不会启动 lease，避免不发送 heartbeat 的旧客户端在 2 秒后意外释放按键。
+v2 客户端打开连接后每 500 毫秒发送一次无响应心跳；有效 v2 流量刷新 2 秒控制租约。
+只有存在保持中的输入、正在收集/执行的批处理或活动长操作时，租约到期才触发取消和
+全输入释放。DTR 下降沿或 USB 禁用会触发相同的会话重置；v1 流量不会启动租约，避免
+不发送心跳的旧客户端在 2 秒后意外释放按键。
 
-`BATCH_BEGIN` 用 shadow state 收集并预验证最多 32 条命令、8 KiB payload；
-`BATCH_END` 后独占、按序执行。该保证只覆盖“执行前验证和不被普通命令插入”，不是对
-已发送物理 HID report 的回滚。`STOP_ALL`、DTR 丢失、USB disable 和 lease 到期可在
-等待、逐字符输入、分段移动、tap/click delay 及 Batch 命令之间的 cooperative boundary
-取消；尚未执行的 Batch 命令会被丢弃，固件随后 best-effort 释放全部键盘和鼠标状态。
-显式 Batch 之外不存在隐藏的普通命令队列。
+`BATCH_BEGIN` 用影子状态收集并预验证最多 32 条命令和 8 KiB 载荷；`BATCH_END` 后
+独占、按序执行。该保证只覆盖“执行前验证和不被普通命令插入”，不是对已发送物理 HID
+报告的回滚。`STOP_ALL`、DTR 丢失、USB 禁用和租约到期可在等待、逐字符输入、分段
+移动、点击延迟及批处理命令之间的协作边界取消；尚未执行的批处理命令会被丢弃，固件
+随后尽力释放全部键盘和鼠标状态。显式批处理之外不存在隐藏的普通命令队列。
 
 `tools\hidctl` 是主机端串口调试工具：
 
@@ -529,7 +527,7 @@ cargo build --manifest-path tools\hidctl\Cargo.toml --release --target x86_64-pc
 git submodule update --init --recursive
 ```
 
-### C++ runtime 找不到 OpenCV
+### C++ 运行时找不到 OpenCV
 
 第一次 `xmake` 会安装或解析 OpenCV 包。确认机器能访问 xmake 包源，并且 MSVC 工具链
 可用。
@@ -542,10 +540,10 @@ git submodule update --init --recursive
 xmake run vision_analyzer --probe-dxgi-outputs
 ```
 
-选择 `duplicate_output=0x0` 的 adapter/output。混合显卡机器通常要选择实际连接屏幕的
+选择 `duplicate_output=0x0` 的适配器/输出。混合显卡机器通常要选择实际连接屏幕的
 显卡输出，不一定是高性能独显。
 
-### live 模式提示 schema 缺失
+### 实时模式提示模型结构说明文件缺失
 
 重新从 Python 端导出 ONNX：
 
