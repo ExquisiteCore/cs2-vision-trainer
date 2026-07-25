@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cs2-vision-runtime-sdk"
+dynamic = ["version"]
+description = "Python SDK for the app-local CS2 vision runtime DLL"
+readme = "README.md"
+requires-python = ">=3.11"
+
+[tool.hatch.version]
+path = "src/cs2_vision_runtime/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cs2_vision_runtime"]
