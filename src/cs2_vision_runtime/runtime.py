@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import ctypes
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import Enum, IntEnum
 from pathlib import Path
 from typing import Optional
 
 from ._version import __version__
-from .errors import RuntimeCallError, RuntimeCompatibilityError, RuntimeLoadError
+from .errors import (
+    RuntimeCallError,
+    RuntimeCompatibilityError,
+    RuntimeLoadError,
+    RuntimeStateError,
+)
 
 
 _ABI_MAJOR = 2
@@ -62,6 +68,12 @@ class LockState(IntEnum):
     TRACKING = 2
     LOCKED = 3
     LOST = 4
+
+
+class RuntimeState(str, Enum):
+    READY = "ready"
+    OPEN = "open"
+    CLOSED = "closed"
 
 
 class _CAction(ctypes.Structure):
@@ -574,6 +586,7 @@ class VisionRuntime:
         self._runtime_package = None
         if not self._handle:
             raise RuntimeError("failed to create vision runtime")
+        self._state = RuntimeState.READY
 
     @classmethod
     def from_app_dir(
@@ -607,11 +620,19 @@ class VisionRuntime:
     def runtime_package(self):
         return self._runtime_package
 
+    @property
+    def state(self) -> RuntimeState:
+        return self._state
+
     def __enter__(self) -> "VisionRuntime":
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        self.close()
+        try:
+            self.close()
+        except Exception:
+            if exc_type is None:
+                raise
 
     def __del__(self) -> None:
         try:
@@ -621,8 +642,20 @@ class VisionRuntime:
 
     def _require_handle(self) -> int:
         if not self._handle:
-            raise RuntimeError("vision runtime is closed")
+            raise RuntimeStateError("vision runtime is closed")
         return self._handle
+
+    def _require_state(
+        self,
+        operation: str,
+        *allowed: RuntimeState,
+    ) -> None:
+        if self._state not in allowed:
+            expected = ", ".join(state.value for state in allowed)
+            raise RuntimeStateError(
+                f"{operation} is not allowed while runtime is "
+                f"{self._state.value}; expected {expected}"
+            )
 
     def _check(self, status: int, operation: str = "runtime call") -> None:
         if status == 0:
@@ -632,7 +665,11 @@ class VisionRuntime:
         raise RuntimeCallError(f"{operation}: {message}")
 
     def load_config(self, path: str | os.PathLike[str]) -> None:
-        self._check(self._api.load_config(self._require_handle(), _encode_path(path)))
+        self._require_state("load config", RuntimeState.READY)
+        self._check(
+            self._api.load_config(self._require_handle(), _encode_path(path)),
+            "load config",
+        )
 
     def set_model(
         self,
@@ -642,6 +679,7 @@ class VisionRuntime:
         backend: str | None = None,
         tensorrt_cache_path: str | os.PathLike[str] | None = None,
     ) -> None:
+        self._require_state("set model", RuntimeState.READY)
         handle = self._require_handle()
         self._check(
             self._api.set_model(handle, _encode_path(model_path)),
@@ -655,51 +693,97 @@ class VisionRuntime:
             self.set_tensorrt_cache_path(tensorrt_cache_path)
 
     def set_schema(self, schema_path: str | os.PathLike[str] | None) -> None:
-        self._check(self._api.set_schema(self._require_handle(), _encode_optional(schema_path)))
+        self._require_state("set schema", RuntimeState.READY)
+        self._check(
+            self._api.set_schema(
+                self._require_handle(),
+                _encode_optional(schema_path),
+            ),
+            "set schema",
+        )
 
     def set_backend(self, backend: str) -> None:
-        self._check(self._api.set_backend(self._require_handle(), backend.encode("utf-8")))
+        self._require_state("set backend", RuntimeState.READY)
+        self._check(
+            self._api.set_backend(
+                self._require_handle(),
+                backend.encode("utf-8"),
+            ),
+            "set backend",
+        )
 
     def set_tensorrt_cache_path(self, path: str | os.PathLike[str]) -> None:
+        self._require_state("set TensorRT cache path", RuntimeState.READY)
         self._check(
             self._api.set_tensorrt_cache_path(
                 self._require_handle(),
                 _encode_path(path),
-            )
+            ),
+            "set TensorRT cache path",
         )
 
     def set_player_side(self, side: str) -> None:
-        self._check(self._api.set_player_side(self._require_handle(), side.encode("utf-8")))
+        self._require_state("set player side", RuntimeState.READY)
+        self._check(
+            self._api.set_player_side(
+                self._require_handle(),
+                side.encode("utf-8"),
+            ),
+            "set player side",
+        )
 
     def set_hid_port(self, port: str | None) -> None:
-        self._check(self._api.set_hid_port(self._require_handle(), None if port is None else port.encode("utf-8")))
+        self._require_state("set HID port", RuntimeState.READY)
+        self._check(
+            self._api.set_hid_port(
+                self._require_handle(),
+                None if port is None else port.encode("utf-8"),
+            ),
+            "set HID port",
+        )
 
     def set_hid_calibration_path(self, path: str | os.PathLike[str]) -> None:
+        self._require_state("set HID calibration path", RuntimeState.READY)
         self._check(
             self._api.set_hid_calibration_path(
                 self._require_handle(),
                 _encode_path(path),
-            )
+            ),
+            "set HID calibration path",
         )
 
     def get_hid_calibration(self) -> HidCalibrationProfile:
+        self._require_state("get HID calibration", RuntimeState.READY)
         profile = _CCalibrationProfile()
         self._check(
             self._api.get_hid_calibration(
                 self._require_handle(),
                 profile,
-            )
+            ),
+            "get HID calibration",
         )
         return HidCalibrationProfile.from_c(profile)
 
     def set_dry_run(self, dry_run: bool) -> None:
-        self._check(self._api.set_dry_run(self._require_handle(), dry_run))
+        self._require_state("set dry run", RuntimeState.READY)
+        self._check(
+            self._api.set_dry_run(self._require_handle(), dry_run),
+            "set dry run",
+        )
 
     def set_output_enabled(self, enabled: bool) -> None:
-        self._check(self._api.set_output_enabled(self._require_handle(), enabled))
+        self._require_state("set output enabled", RuntimeState.OPEN)
+        self._check(
+            self._api.set_output_enabled(self._require_handle(), enabled),
+            "set output enabled",
+        )
 
     def set_fire_enabled(self, enabled: bool) -> None:
-        self._check(self._api.set_fire_enabled(self._require_handle(), enabled))
+        self._require_state("set fire enabled", RuntimeState.OPEN)
+        self._check(
+            self._api.set_fire_enabled(self._require_handle(), enabled),
+            "set fire enabled",
+        )
 
     def set_fire_policy(
         self,
@@ -709,6 +793,11 @@ class VisionRuntime:
         body_confidence: float = 0.45,
         cooldown_frames: int = 3,
     ) -> None:
+        self._require_state(
+            "set fire policy",
+            RuntimeState.READY,
+            RuntimeState.OPEN,
+        )
         self._check(
             self._api.set_fire_policy(
                 self._require_handle(),
@@ -716,26 +805,83 @@ class VisionRuntime:
                 head_confidence,
                 body_confidence,
                 cooldown_frames,
-            )
+            ),
+            "set fire policy",
         )
 
     def set_hid_click(self, enabled: bool, cooldown_frames: int = 3) -> None:
-        self._check(self._api.set_hid_click(self._require_handle(), enabled, cooldown_frames))
+        self._require_state(
+            "set HID click",
+            RuntimeState.READY,
+            RuntimeState.OPEN,
+        )
+        self._check(
+            self._api.set_hid_click(
+                self._require_handle(),
+                enabled,
+                cooldown_frames,
+            ),
+            "set HID click",
+        )
 
     def set_hid_tuning(self, gain: float = 1.0, max_step: int = 120, deadzone_px: float = 1.5) -> None:
-        self._check(self._api.set_hid_tuning(self._require_handle(), gain, max_step, deadzone_px))
+        self._require_state("set HID tuning", RuntimeState.READY)
+        self._check(
+            self._api.set_hid_tuning(
+                self._require_handle(),
+                gain,
+                max_step,
+                deadzone_px,
+            ),
+            "set HID tuning",
+        )
 
     def set_thresholds(self, confidence: float = 0.25, nms_threshold: float = 0.45) -> None:
-        self._check(self._api.set_thresholds(self._require_handle(), confidence, nms_threshold))
+        self._require_state("set thresholds", RuntimeState.READY)
+        self._check(
+            self._api.set_thresholds(
+                self._require_handle(),
+                confidence,
+                nms_threshold,
+            ),
+            "set thresholds",
+        )
 
     def set_dxgi_roi(self, x: int, y: int, width: int, height: int) -> None:
-        self._check(self._api.set_dxgi_roi(self._require_handle(), x, y, width, height))
+        self._require_state("set DXGI ROI", RuntimeState.READY)
+        self._check(
+            self._api.set_dxgi_roi(
+                self._require_handle(),
+                x,
+                y,
+                width,
+                height,
+            ),
+            "set DXGI ROI",
+        )
 
     def set_frame_limits(self, max_frames: int = 0, warmup_frames: int = 3) -> None:
-        self._check(self._api.set_frame_limits(self._require_handle(), max_frames, warmup_frames))
+        self._require_state("set frame limits", RuntimeState.READY)
+        self._check(
+            self._api.set_frame_limits(
+                self._require_handle(),
+                max_frames,
+                warmup_frames,
+            ),
+            "set frame limits",
+        )
 
     def open_video(self, video_path: str | os.PathLike[str], *, dry_run: bool = True) -> None:
-        self._check(self._api.open_video(self._require_handle(), _encode_path(video_path), dry_run))
+        self._require_state("open video", RuntimeState.READY)
+        self._check(
+            self._api.open_video(
+                self._require_handle(),
+                _encode_path(video_path),
+                dry_run,
+            ),
+            "open video",
+        )
+        self._state = RuntimeState.OPEN
 
     def open_dxgi(
         self,
@@ -746,13 +892,24 @@ class VisionRuntime:
         player_side: str | None = None,
         hid_port: str | None = None,
     ) -> None:
+        self._require_state("open DXGI", RuntimeState.READY)
         if player_side is not None:
             self.set_player_side(player_side)
         if hid_port is not None:
             self.set_hid_port(hid_port)
-        self._check(self._api.open_dxgi(self._require_handle(), adapter, output, dry_run))
+        self._check(
+            self._api.open_dxgi(
+                self._require_handle(),
+                adapter,
+                output,
+                dry_run,
+            ),
+            "open DXGI",
+        )
+        self._state = RuntimeState.OPEN
 
     def calibrate_hid(self, *, adapter: int = 0, output: int = 0) -> HidCalibrationProfile:
+        self._require_state("calibrate HID", RuntimeState.READY)
         profile = _CCalibrationProfile()
         self._check(
             self._api.calibrate_hid(
@@ -760,28 +917,97 @@ class VisionRuntime:
                 adapter,
                 output,
                 profile,
-            )
+            ),
+            "calibrate HID",
         )
         return HidCalibrationProfile.from_c(profile)
 
     def process_next(self) -> VisionAction | None:
+        self._require_state("process next", RuntimeState.OPEN)
         action = _CAction()
         status = self._api.process_next(self._require_handle(), action)
         if status == 1:
             return VisionAction.from_c(action)
         if status == 0:
             return None
-        message = self._api.last_error(self._require_handle()) or "vision runtime processing failed"
-        raise RuntimeError(message)
+        message = (
+            self._api.last_error(self._require_handle())
+            or "vision runtime processing failed"
+        )
+        raise RuntimeCallError(f"process next: {message}")
+
+    def iter_actions(self):
+        self._require_state("iterate actions", RuntimeState.OPEN)
+        while True:
+            action = self.process_next()
+            if action is None:
+                return
+            yield action
+
+    @contextmanager
+    def armed_output(self, *, fire: bool = False):
+        self._require_state("arm output", RuntimeState.OPEN)
+        primary_error: BaseException | None = None
+        try:
+            self.set_output_enabled(True)
+            if fire:
+                self.set_fire_enabled(True)
+            yield self
+        except BaseException as exc:
+            primary_error = exc
+            raise
+        finally:
+            cleanup_errors: list[BaseException] = []
+            for cleanup in (
+                lambda: self.set_fire_enabled(False),
+                lambda: self.set_output_enabled(False),
+                self.stop_all,
+            ):
+                try:
+                    cleanup()
+                except BaseException as exc:
+                    cleanup_errors.append(exc)
+            if primary_error is None and cleanup_errors:
+                raise cleanup_errors[0]
 
     def stop_all(self) -> None:
-        self._check(self._api.stop_all(self._require_handle()))
+        self._require_state("stop all", RuntimeState.OPEN)
+        self._check(
+            self._api.stop_all(self._require_handle()),
+            "stop all",
+        )
 
     def reset(self) -> None:
-        self._check(self._api.close(self._require_handle()))
+        self._require_state("reset", RuntimeState.OPEN)
+        self._check(
+            self._api.close(self._require_handle()),
+            "reset",
+        )
+        self._state = RuntimeState.READY
 
     def close(self) -> None:
-        if self._handle:
-            handle = self._handle
-            self._handle = 0
+        handle = getattr(self, "_handle", 0)
+        if not handle:
+            if hasattr(self, "_state"):
+                self._state = RuntimeState.CLOSED
+            return
+
+        self._handle = 0
+        self._state = RuntimeState.CLOSED
+        close_error: BaseException | None = None
+        try:
+            status = self._api.close(handle)
+            if status != 0:
+                message = self._api.last_error(handle) or "vision runtime close failed"
+                close_error = RuntimeCallError(f"close: {message}")
+        except BaseException as exc:
+            close_error = exc
+
+        try:
             self._api.destroy(handle)
+        except BaseException:
+            if close_error is None:
+                raise
+
+        if close_error is not None:
+            raise close_error

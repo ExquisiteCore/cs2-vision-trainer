@@ -117,6 +117,7 @@ class FakeApi:
         self.calls = []
         self.error = ""
         self.next_status = 0
+        self.statuses = []
         self.abi_info = SimpleNamespace(
             abi_major=2,
             abi_minor=0,
@@ -235,8 +236,9 @@ class FakeApi:
         return 0
 
     def process_next(self, handle, action):
-        if self.next_status != 1:
-            return self.next_status
+        status = self.statuses.pop(0) if self.statuses else self.next_status
+        if status != 1:
+            return status
         action.frame_index = 42
         action.timestamp_ms = 123.0
         action.fps = 144.0
@@ -305,12 +307,14 @@ def test_runtime_wrapper_forwards_configuration():
     assert ("set_player_side", b"ct") in api.calls
     assert ("set_hid_port", b"COM3") in api.calls
     assert ("open_video", b"videos/02.mp4", True) in api.calls
+    assert ("close",) in api.calls
     assert api.destroyed == [123]
 
 
 def test_process_next_returns_action_or_none():
     api = FakeApi()
     runtime = VisionRuntime(_api=api)
+    runtime.open_video("videos/02.mp4", dry_run=True)
 
     assert runtime.process_next() is None
 
@@ -365,6 +369,7 @@ def test_portable_runtime_discovers_private_dll_directories(tmp_path):
 def test_runtime_forwards_live_control_and_fire_policy():
     api = FakeApi()
     runtime = VisionRuntime(_api=api)
+    runtime.open_video("videos/02.mp4", dry_run=True)
     runtime.set_output_enabled(True)
     runtime.set_fire_enabled(True)
     runtime.set_fire_policy(
@@ -376,6 +381,208 @@ def test_runtime_forwards_live_control_and_fire_policy():
     assert ("set_output_enabled", True) in api.calls
     assert ("set_fire_enabled", True) in api.calls
     assert ("set_fire_policy", True, 0.35, 0.45, 3) in api.calls
+
+
+def test_runtime_state_transitions_and_rejects_invalid_order():
+    runtime_module = importlib.import_module("cs2_vision_runtime.runtime")
+    errors_module = importlib.import_module("cs2_vision_runtime.errors")
+    api = FakeApi()
+    runtime = VisionRuntime(_api=api)
+
+    assert runtime.state is runtime_module.RuntimeState.READY
+    with pytest.raises(errors_module.RuntimeStateError, match="process next.*ready"):
+        runtime.process_next()
+
+    runtime.open_video("videos/02.mp4", dry_run=True)
+    assert runtime.state is runtime_module.RuntimeState.OPEN
+    ready_only_operations = [
+        ("load config", lambda: runtime.load_config("runtime.cfg")),
+        ("set model", lambda: runtime.set_model("best.onnx")),
+        ("set schema", lambda: runtime.set_schema("best.onnx.schema.json")),
+        ("set backend", lambda: runtime.set_backend("ort-tensorrt")),
+        ("set TensorRT cache path", lambda: runtime.set_tensorrt_cache_path("cache")),
+        ("set player side", lambda: runtime.set_player_side("ct")),
+        ("set HID port", lambda: runtime.set_hid_port("COM3")),
+        ("set HID calibration path", lambda: runtime.set_hid_calibration_path("hid.json")),
+        ("set dry run", lambda: runtime.set_dry_run(True)),
+        ("set HID tuning", lambda: runtime.set_hid_tuning()),
+        ("set thresholds", lambda: runtime.set_thresholds()),
+        ("set DXGI ROI", lambda: runtime.set_dxgi_roi(0, 0, 1920, 1080)),
+        ("set frame limits", lambda: runtime.set_frame_limits()),
+        ("calibrate HID", lambda: runtime.calibrate_hid()),
+    ]
+    for operation, call in ready_only_operations:
+        with pytest.raises(
+            errors_module.RuntimeStateError,
+            match=rf"{operation}.*open",
+        ):
+            call()
+
+    runtime.set_fire_policy()
+    runtime.set_hid_click(False)
+
+    runtime.reset()
+    assert runtime.state is runtime_module.RuntimeState.READY
+    runtime.set_thresholds()
+    runtime.close()
+    assert runtime.state is runtime_module.RuntimeState.CLOSED
+    runtime.close()
+    assert api.destroyed == [123]
+
+
+def test_open_failure_leaves_runtime_ready():
+    runtime_module = importlib.import_module("cs2_vision_runtime.runtime")
+    api = FakeApi()
+    api.error = "capture unavailable"
+    api.open_video = lambda handle, path, dry_run: -1
+    runtime = VisionRuntime(_api=api)
+
+    with pytest.raises(RuntimeError, match="capture unavailable"):
+        runtime.open_video("videos/02.mp4", dry_run=True)
+
+    assert runtime.state is runtime_module.RuntimeState.READY
+
+
+def test_ready_runtime_rejects_open_only_operations():
+    errors_module = importlib.import_module("cs2_vision_runtime.errors")
+    api = FakeApi()
+    runtime = VisionRuntime(_api=api)
+
+    for operation, call in [
+        ("set output enabled", lambda: runtime.set_output_enabled(True)),
+        ("set fire enabled", lambda: runtime.set_fire_enabled(True)),
+        ("process next", runtime.process_next),
+        ("stop all", runtime.stop_all),
+    ]:
+        with pytest.raises(
+            errors_module.RuntimeStateError,
+            match=rf"{operation}.*ready",
+        ):
+            call()
+
+    with pytest.raises(errors_module.RuntimeStateError, match="iterate actions.*ready"):
+        list(runtime.iter_actions())
+    with pytest.raises(errors_module.RuntimeStateError, match="arm output.*ready"):
+        with runtime.armed_output():
+            pass
+
+    runtime.set_fire_policy()
+    runtime.set_hid_click(False)
+
+
+def test_iter_actions_yields_until_native_end_of_stream():
+    api = FakeApi()
+    api.statuses = [1, 1, 0]
+    runtime = VisionRuntime(_api=api)
+    runtime.open_video("videos/02.mp4", dry_run=True)
+
+    actions = list(runtime.iter_actions())
+
+    assert [action.frame_index for action in actions] == [42, 42]
+
+
+def test_armed_output_always_disarms_and_stops():
+    api = FakeApi()
+    runtime = VisionRuntime(_api=api)
+    runtime.open_video("videos/02.mp4", dry_run=False)
+
+    with pytest.raises(RuntimeError, match="processing failed"):
+        with runtime.armed_output(fire=True):
+            raise RuntimeError("processing failed")
+
+    assert api.calls[-5:] == [
+        ("set_output_enabled", True),
+        ("set_fire_enabled", True),
+        ("set_fire_enabled", False),
+        ("set_output_enabled", False),
+        ("stop_all",),
+    ]
+
+
+def test_armed_output_preserves_body_error_and_attempts_every_cleanup():
+    api = FakeApi()
+    runtime = VisionRuntime(_api=api)
+    runtime.open_video("videos/02.mp4", dry_run=False)
+
+    original_fire = api.set_fire_enabled
+    original_output = api.set_output_enabled
+    original_stop = api.stop_all
+
+    def fail_fire_off(handle, enabled):
+        status = original_fire(handle, enabled)
+        return -1 if not enabled else status
+
+    def fail_output_off(handle, enabled):
+        status = original_output(handle, enabled)
+        return -1 if not enabled else status
+
+    def fail_stop(handle):
+        original_stop(handle)
+        return -1
+
+    api.error = "cleanup failed"
+    api.set_fire_enabled = fail_fire_off
+    api.set_output_enabled = fail_output_off
+    api.stop_all = fail_stop
+
+    with pytest.raises(ValueError, match="processing failed"):
+        with runtime.armed_output(fire=True):
+            raise ValueError("processing failed")
+
+    assert api.calls[-3:] == [
+        ("set_fire_enabled", False),
+        ("set_output_enabled", False),
+        ("stop_all",),
+    ]
+
+
+def test_armed_output_reports_first_cleanup_error_after_normal_exit():
+    api = FakeApi()
+    runtime = VisionRuntime(_api=api)
+    runtime.open_video("videos/02.mp4", dry_run=False)
+
+    original_fire = api.set_fire_enabled
+
+    def fail_fire_off(handle, enabled):
+        status = original_fire(handle, enabled)
+        return -1 if not enabled else status
+
+    api.error = "fire cleanup failed"
+    api.set_fire_enabled = fail_fire_off
+
+    with pytest.raises(RuntimeError, match="fire cleanup failed"):
+        with runtime.armed_output(fire=True):
+            pass
+
+    assert api.calls[-3:] == [
+        ("set_fire_enabled", False),
+        ("set_output_enabled", False),
+        ("stop_all",),
+    ]
+
+
+def test_close_destroys_handle_even_when_native_close_fails():
+    runtime_module = importlib.import_module("cs2_vision_runtime.runtime")
+    api = FakeApi()
+    api.error = "native close failed"
+    api.close = lambda handle: api.calls.append(("close",)) or -1
+    runtime = VisionRuntime(_api=api)
+
+    with pytest.raises(RuntimeError, match="native close failed"):
+        runtime.close()
+
+    assert runtime.state is runtime_module.RuntimeState.CLOSED
+    assert api.calls[-1] == ("close",)
+    assert api.destroyed == [123]
+    runtime.close()
+    assert api.destroyed == [123]
+
+
+def test_runtime_state_is_exported_from_public_package():
+    package = importlib.import_module("cs2_vision_runtime")
+    runtime_module = importlib.import_module("cs2_vision_runtime.runtime")
+
+    assert package.RuntimeState is runtime_module.RuntimeState
 
 
 def test_runtime_converts_calibration_profile():
