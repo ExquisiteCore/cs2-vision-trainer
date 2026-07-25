@@ -7,6 +7,54 @@ from enum import IntEnum
 from pathlib import Path
 from typing import Optional
 
+from ._version import __version__
+from .errors import RuntimeCallError, RuntimeCompatibilityError, RuntimeLoadError
+
+
+_ABI_MAJOR = 2
+_MINIMUM_ABI_MINOR = 0
+_FEATURE_TENSORRT_CACHE = 1 << 0
+_FEATURE_PERSISTENT_CALIBRATION = 1 << 1
+_FEATURE_OUTPUT_ARMING = 1 << 2
+_FEATURE_FIRE_ARMING = 1 << 3
+_REQUIRED_FEATURES = (
+    _FEATURE_TENSORRT_CACHE
+    | _FEATURE_PERSISTENT_CALIBRATION
+    | _FEATURE_OUTPUT_ARMING
+    | _FEATURE_FIRE_ARMING
+)
+
+_REQUIRED_EXPORTS = (
+    "va_get_abi_info",
+    "va_create",
+    "va_destroy",
+    "va_last_error",
+    "va_load_config",
+    "va_set_model",
+    "va_set_schema",
+    "va_set_backend",
+    "va_set_tensorrt_cache_path",
+    "va_set_player_side",
+    "va_set_hid_port",
+    "va_set_dry_run",
+    "va_set_output_enabled",
+    "va_set_fire_enabled",
+    "va_set_fire_policy",
+    "va_set_hid_click",
+    "va_set_hid_tuning",
+    "va_set_hid_calibration_path",
+    "va_get_hid_calibration",
+    "va_set_thresholds",
+    "va_set_dxgi_roi",
+    "va_set_frame_limits",
+    "va_open_video",
+    "va_open_dxgi",
+    "va_calibrate_hid",
+    "va_process_next",
+    "va_stop_all",
+    "va_close",
+)
+
 
 class LockState(IntEnum):
     IDLE = 0
@@ -55,6 +103,37 @@ class _CCalibrationProfile(ctypes.Structure):
         ("quality", ctypes.c_float),
         ("accepted_samples", ctypes.c_int32),
     ]
+
+
+class _CAbiInfo(ctypes.Structure):
+    _fields_ = [
+        ("struct_size", ctypes.c_uint32),
+        ("abi_major", ctypes.c_uint32),
+        ("abi_minor", ctypes.c_uint32),
+        ("runtime_action_size", ctypes.c_uint32),
+        ("hid_calibration_profile_size", ctypes.c_uint32),
+        ("reserved", ctypes.c_uint32),
+        ("feature_flags", ctypes.c_uint64),
+    ]
+
+
+@dataclass(frozen=True)
+class RuntimeAbiInfo:
+    abi_major: int
+    abi_minor: int
+    runtime_action_size: int
+    hid_calibration_profile_size: int
+    feature_flags: int
+
+    @classmethod
+    def from_c(cls, info: _CAbiInfo) -> "RuntimeAbiInfo":
+        return cls(
+            abi_major=int(info.abi_major),
+            abi_minor=int(info.abi_minor),
+            runtime_action_size=int(info.runtime_action_size),
+            hid_calibration_profile_size=int(info.hid_calibration_profile_size),
+            feature_flags=int(info.feature_flags),
+        )
 
 
 @dataclass(frozen=True)
@@ -147,6 +226,50 @@ def _encode_optional(value: Optional[str | os.PathLike[str]]) -> Optional[bytes]
     return _encode_path(value)
 
 
+def _require_runtime_exports(dll, dll_path: Path) -> None:
+    missing = [name for name in _REQUIRED_EXPORTS if not hasattr(dll, name)]
+    if missing:
+        joined = ", ".join(missing)
+        raise RuntimeCompatibilityError(
+            f"vision runtime DLL is incompatible with Python SDK {__version__}: "
+            f"{dll_path.resolve()} is missing exports: {joined}"
+        )
+
+
+def _validate_abi_info(info: RuntimeAbiInfo, dll_path: Path) -> None:
+    location = dll_path.resolve()
+    if info.abi_major != _ABI_MAJOR:
+        raise RuntimeCompatibilityError(
+            f"runtime ABI major mismatch for {location}: "
+            f"SDK requires {_ABI_MAJOR}, DLL reports {info.abi_major}"
+        )
+    if info.abi_minor < _MINIMUM_ABI_MINOR:
+        raise RuntimeCompatibilityError(
+            f"runtime ABI minor mismatch for {location}: SDK requires at least "
+            f"{_ABI_MAJOR}.{_MINIMUM_ABI_MINOR}, DLL reports "
+            f"{info.abi_major}.{info.abi_minor}"
+        )
+    expected_action_size = ctypes.sizeof(_CAction)
+    if info.runtime_action_size != expected_action_size:
+        raise RuntimeCompatibilityError(
+            f"VaRuntimeAction layout mismatch for {location}: "
+            f"SDK={expected_action_size}, DLL={info.runtime_action_size}"
+        )
+    expected_calibration_size = ctypes.sizeof(_CCalibrationProfile)
+    if info.hid_calibration_profile_size != expected_calibration_size:
+        raise RuntimeCompatibilityError(
+            f"VaHidCalibrationProfile layout mismatch for {location}: "
+            f"SDK={expected_calibration_size}, "
+            f"DLL={info.hid_calibration_profile_size}"
+        )
+    missing_features = _REQUIRED_FEATURES & ~info.feature_flags
+    if missing_features:
+        raise RuntimeCompatibilityError(
+            f"runtime feature mismatch for {location}: "
+            f"missing required feature bits 0x{missing_features:X}"
+        )
+
+
 def find_runtime_dll(explicit_path: str | os.PathLike[str] | None = None) -> Path:
     if explicit_path:
         path = Path(explicit_path)
@@ -206,11 +329,28 @@ class _RuntimeApi:
                 add_dll_directory(str(directory))
                 for directory in _runtime_dll_directories(self.path)
             ]
-        self._dll = ctypes.CDLL(str(self.path))
+        try:
+            self._dll = ctypes.CDLL(str(self.path))
+        except OSError as error:
+            raise RuntimeLoadError(
+                f"failed to load vision runtime DLL {self.path.resolve()}: {error}"
+            ) from error
+        _require_runtime_exports(self._dll, self.path)
         self._configure()
 
     def _configure(self) -> None:
         dll = self._dll
+        dll.va_get_abi_info.argtypes = [ctypes.POINTER(_CAbiInfo)]
+        dll.va_get_abi_info.restype = ctypes.c_int32
+        raw_abi = _CAbiInfo()
+        raw_abi.struct_size = ctypes.sizeof(raw_abi)
+        if int(dll.va_get_abi_info(ctypes.byref(raw_abi))) != 0:
+            raise RuntimeCompatibilityError(
+                f"failed to query runtime ABI from {self.path.resolve()}"
+            )
+        self.abi_info = RuntimeAbiInfo.from_c(raw_abi)
+        _validate_abi_info(self.abi_info, self.path)
+
         dll.va_create.argtypes = []
         dll.va_create.restype = ctypes.c_void_p
         dll.va_destroy.argtypes = [ctypes.c_void_p]
@@ -223,6 +363,7 @@ class _RuntimeApi:
             "va_set_model",
             "va_set_schema",
             "va_set_backend",
+            "va_set_tensorrt_cache_path",
             "va_set_player_side",
             "va_set_hid_port",
             "va_set_hid_calibration_path",
@@ -299,6 +440,9 @@ class _RuntimeApi:
 
     def set_backend(self, handle: int, backend: bytes) -> int:
         return int(self._dll.va_set_backend(handle, backend))
+
+    def set_tensorrt_cache_path(self, handle: int, path: bytes) -> int:
+        return int(self._dll.va_set_tensorrt_cache_path(handle, path))
 
     def set_player_side(self, handle: int, side: bytes) -> int:
         return int(self._dll.va_set_player_side(handle, side))
@@ -407,12 +551,12 @@ class VisionRuntime:
             raise RuntimeError("vision runtime is closed")
         return self._handle
 
-    def _check(self, status: int) -> None:
+    def _check(self, status: int, operation: str = "runtime call") -> None:
         if status == 0:
             return
         handle = self._require_handle()
         message = self._api.last_error(handle) or "vision runtime call failed"
-        raise RuntimeError(message)
+        raise RuntimeCallError(f"{operation}: {message}")
 
     def load_config(self, path: str | os.PathLike[str]) -> None:
         self._check(self._api.load_config(self._require_handle(), _encode_path(path)))
@@ -423,19 +567,33 @@ class VisionRuntime:
         *,
         schema_path: str | os.PathLike[str] | None = None,
         backend: str | None = None,
+        tensorrt_cache_path: str | os.PathLike[str] | None = None,
     ) -> None:
         handle = self._require_handle()
-        self._check(self._api.set_model(handle, _encode_path(model_path)))
+        self._check(
+            self._api.set_model(handle, _encode_path(model_path)),
+            "set model",
+        )
         if schema_path is not None:
             self._check(self._api.set_schema(handle, _encode_path(schema_path)))
         if backend is not None:
             self.set_backend(backend)
+        if tensorrt_cache_path is not None:
+            self.set_tensorrt_cache_path(tensorrt_cache_path)
 
     def set_schema(self, schema_path: str | os.PathLike[str] | None) -> None:
         self._check(self._api.set_schema(self._require_handle(), _encode_optional(schema_path)))
 
     def set_backend(self, backend: str) -> None:
         self._check(self._api.set_backend(self._require_handle(), backend.encode("utf-8")))
+
+    def set_tensorrt_cache_path(self, path: str | os.PathLike[str]) -> None:
+        self._check(
+            self._api.set_tensorrt_cache_path(
+                self._require_handle(),
+                _encode_path(path),
+            )
+        )
 
     def set_player_side(self, side: str) -> None:
         self._check(self._api.set_player_side(self._require_handle(), side.encode("utf-8")))

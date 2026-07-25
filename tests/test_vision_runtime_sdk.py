@@ -1,4 +1,5 @@
 import ctypes
+import dataclasses
 import importlib.util
 import os
 import re
@@ -33,10 +34,58 @@ def test_python_runtime_c_api_matches_pinned_cpp_header():
         / "vision_runtime_c_api.h"
     ).read_text(encoding="utf-8")
 
-    required = set(re.findall(r"\bva_[a-z0-9_]+", python_source))
+    runtime_module = importlib.import_module("cs2_vision_runtime.runtime")
+    required = set(runtime_module._REQUIRED_EXPORTS)
     declared = set(re.findall(r"\bva_[a-z0-9_]+(?=\s*\()", cpp_header))
 
-    assert required <= declared, f"Python wrapper requires missing C API exports: {sorted(required - declared)}"
+    assert required == declared, (
+        f"Python-only exports: {sorted(required - declared)}; "
+        f"unbound C exports: {sorted(declared - required)}"
+    )
+
+
+def test_runtime_reports_all_missing_exports_before_binding():
+    runtime_module = importlib.import_module("cs2_vision_runtime.runtime")
+    errors_module = importlib.import_module("cs2_vision_runtime.errors")
+    fake_dll = SimpleNamespace(va_create=lambda: 1)
+
+    with pytest.raises(errors_module.RuntimeCompatibilityError) as captured:
+        runtime_module._require_runtime_exports(fake_dll, Path("old-runtime.dll"))
+
+    message = str(captured.value)
+    assert "old-runtime.dll" in message
+    assert "va_get_abi_info" in message
+    assert "va_set_tensorrt_cache_path" in message
+
+
+def test_runtime_abi_validation_accepts_only_matching_layout_and_features():
+    runtime_module = importlib.import_module("cs2_vision_runtime.runtime")
+    errors_module = importlib.import_module("cs2_vision_runtime.errors")
+    valid = runtime_module.RuntimeAbiInfo(
+        abi_major=2,
+        abi_minor=0,
+        runtime_action_size=ctypes.sizeof(_CAction),
+        hid_calibration_profile_size=ctypes.sizeof(_CCalibrationProfile),
+        feature_flags=runtime_module._REQUIRED_FEATURES,
+    )
+    runtime_module._validate_abi_info(valid, Path("vision_runtime.dll"))
+
+    wrong_major = dataclasses.replace(valid, abi_major=1)
+    with pytest.raises(errors_module.RuntimeCompatibilityError, match="ABI major"):
+        runtime_module._validate_abi_info(wrong_major, Path("old.dll"))
+
+    wrong_action = dataclasses.replace(valid, runtime_action_size=1)
+    with pytest.raises(errors_module.RuntimeCompatibilityError, match="VaRuntimeAction"):
+        runtime_module._validate_abi_info(wrong_action, Path("bad-layout.dll"))
+
+    missing_feature = dataclasses.replace(valid, feature_flags=0)
+    with pytest.raises(errors_module.RuntimeCompatibilityError, match="feature"):
+        runtime_module._validate_abi_info(missing_feature, Path("missing-feature.dll"))
+
+
+def test_runtime_abi_ctypes_layout_is_stable():
+    runtime_module = importlib.import_module("cs2_vision_runtime.runtime")
+    assert ctypes.sizeof(runtime_module._CAbiInfo) == 32
 
 
 class FakeApi:
@@ -69,6 +118,10 @@ class FakeApi:
 
     def set_backend(self, handle, backend):
         self.calls.append(("set_backend", backend))
+        return 0
+
+    def set_tensorrt_cache_path(self, handle, path):
+        self.calls.append(("set_tensorrt_cache_path", path))
         return 0
 
     def set_player_side(self, handle, side):
@@ -206,7 +259,12 @@ def test_runtime_wrapper_forwards_configuration():
     api = FakeApi()
     runtime = VisionRuntime(_api=api)
 
-    runtime.set_model("best.onnx", schema_path="best.onnx.schema.json", backend="opencv-onnx")
+    runtime.set_model(
+        "best.onnx",
+        schema_path="best.onnx.schema.json",
+        backend="ort-tensorrt",
+        tensorrt_cache_path="cache/ort-trt-sm61-fp32",
+    )
     runtime.set_player_side("ct")
     runtime.set_hid_port("COM3")
     runtime.open_video("videos/02.mp4", dry_run=True)
@@ -214,7 +272,8 @@ def test_runtime_wrapper_forwards_configuration():
 
     assert ("set_model", b"best.onnx") in api.calls
     assert ("set_schema", b"best.onnx.schema.json") in api.calls
-    assert ("set_backend", b"opencv-onnx") in api.calls
+    assert ("set_backend", b"ort-tensorrt") in api.calls
+    assert ("set_tensorrt_cache_path", b"cache/ort-trt-sm61-fp32") in api.calls
     assert ("set_player_side", b"ct") in api.calls
     assert ("set_hid_port", b"COM3") in api.calls
     assert ("open_video", b"videos/02.mp4", True) in api.calls
@@ -248,7 +307,8 @@ def test_runtime_error_uses_last_error():
 
     api.set_model = fail_set_model
 
-    with pytest.raises(RuntimeError, match="bad model"):
+    errors_module = importlib.import_module("cs2_vision_runtime.errors")
+    with pytest.raises(errors_module.RuntimeCallError, match="set model: bad model"):
         runtime.set_model("bad.onnx")
 
 
