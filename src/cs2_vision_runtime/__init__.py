@@ -16,6 +16,7 @@ from .runtime import (
     VisionRuntime,
     find_runtime_dll,
 )
+from .package import RuntimePackage
 
 __all__ = [
     "HidCalibrationProfile",
@@ -24,6 +25,7 @@ __all__ = [
     "RuntimeCallError",
     "RuntimeCompatibilityError",
     "RuntimeLoadError",
+    "RuntimePackage",
     "RuntimeStateError",
     "VisionAction",
     "VisionRuntime",

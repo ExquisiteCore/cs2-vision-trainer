@@ -270,6 +270,25 @@ def _validate_abi_info(info: RuntimeAbiInfo, dll_path: Path) -> None:
         )
 
 
+def _validate_package_abi(package, info: RuntimeAbiInfo) -> None:
+    if (
+        info.abi_major != package.required_abi_major
+        or info.abi_minor < package.required_abi_minor
+    ):
+        raise RuntimeCompatibilityError(
+            f"runtime manifest ABI requirement does not match the loaded DLL: "
+            f"manifest requires {package.required_abi_major}."
+            f"{package.required_abi_minor}, DLL reports "
+            f"{info.abi_major}.{info.abi_minor}: {package.manifest_path}"
+        )
+    missing_features = package.required_features & ~info.feature_flags
+    if missing_features:
+        raise RuntimeCompatibilityError(
+            f"runtime manifest feature requirement does not match the loaded DLL: "
+            f"missing bits 0x{missing_features:X}: {package.manifest_path}"
+        )
+
+
 def find_runtime_dll(explicit_path: str | os.PathLike[str] | None = None) -> Path:
     if explicit_path:
         path = Path(explicit_path)
@@ -320,14 +339,25 @@ def _runtime_dll_directories(dll_path: str | os.PathLike[str]) -> list[Path]:
 
 
 class _RuntimeApi:
-    def __init__(self, dll_path: str | os.PathLike[str] | None = None):
+    def __init__(
+        self,
+        dll_path: str | os.PathLike[str] | None = None,
+        dll_directories: tuple[str | os.PathLike[str], ...] | None = None,
+    ):
         self.path = find_runtime_dll(dll_path)
         self._dll_directory_handles = []
         add_dll_directory = getattr(os, "add_dll_directory", None)
         if add_dll_directory is not None:
+            if dll_directories is None:
+                directories = _runtime_dll_directories(self.path)
+            else:
+                directories = [self.path.parent]
+                directories.extend(Path(value) for value in dll_directories)
+            unique_directories = list(dict.fromkeys(Path(value) for value in directories))
             self._dll_directory_handles = [
                 add_dll_directory(str(directory))
-                for directory in _runtime_dll_directories(self.path)
+                for directory in unique_directories
+                if directory.is_dir()
             ]
         try:
             self._dll = ctypes.CDLL(str(self.path))
@@ -528,11 +558,54 @@ class _RuntimeApi:
 
 
 class VisionRuntime:
-    def __init__(self, dll_path: str | os.PathLike[str] | None = None, *, _api=None):
-        self._api = _api if _api is not None else _RuntimeApi(dll_path)
+    def __init__(
+        self,
+        dll_path: str | os.PathLike[str] | None = None,
+        *,
+        dll_directories: tuple[str | os.PathLike[str], ...] | None = None,
+        _api=None,
+    ):
+        self._api = (
+            _api
+            if _api is not None
+            else _RuntimeApi(dll_path, dll_directories=dll_directories)
+        )
         self._handle = self._api.create()
+        self._runtime_package = None
         if not self._handle:
             raise RuntimeError("failed to create vision runtime")
+
+    @classmethod
+    def from_app_dir(
+        cls,
+        app_dir: str | os.PathLike[str],
+        *,
+        data_dir: str | os.PathLike[str],
+    ) -> "VisionRuntime":
+        from .package import RuntimePackage
+
+        package = RuntimePackage.load(Path(app_dir), Path(data_dir))
+        runtime = cls(
+            dll_path=package.dll_path,
+            dll_directories=package.native_directories,
+        )
+        try:
+            _validate_package_abi(package, runtime._api.abi_info)
+            runtime.set_model(
+                package.model_path,
+                schema_path=package.schema_path,
+                backend=package.backend,
+                tensorrt_cache_path=package.cache_path,
+            )
+        except BaseException:
+            runtime.close()
+            raise
+        runtime._runtime_package = package
+        return runtime
+
+    @property
+    def runtime_package(self):
+        return self._runtime_package
 
     def __enter__(self) -> "VisionRuntime":
         return self

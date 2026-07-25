@@ -88,12 +88,40 @@ def test_runtime_abi_ctypes_layout_is_stable():
     assert ctypes.sizeof(runtime_module._CAbiInfo) == 32
 
 
+def test_runtime_package_abi_requirements_must_match_loaded_dll():
+    runtime_module = importlib.import_module("cs2_vision_runtime.runtime")
+    errors_module = importlib.import_module("cs2_vision_runtime.errors")
+    package = SimpleNamespace(
+        required_abi_major=2,
+        required_abi_minor=0,
+        required_features=15,
+        manifest_path=Path("runtime-manifest.json"),
+    )
+    abi = runtime_module.RuntimeAbiInfo(
+        abi_major=2,
+        abi_minor=0,
+        runtime_action_size=ctypes.sizeof(_CAction),
+        hid_calibration_profile_size=ctypes.sizeof(_CCalibrationProfile),
+        feature_flags=15,
+    )
+    runtime_module._validate_package_abi(package, abi)
+
+    package.required_abi_major = 3
+    with pytest.raises(errors_module.RuntimeCompatibilityError, match="manifest.*ABI"):
+        runtime_module._validate_package_abi(package, abi)
+
+
 class FakeApi:
     def __init__(self):
         self.destroyed = []
         self.calls = []
         self.error = ""
         self.next_status = 0
+        self.abi_info = SimpleNamespace(
+            abi_major=2,
+            abi_minor=0,
+            feature_flags=15,
+        )
 
     def create(self):
         return 123
@@ -374,6 +402,54 @@ def test_runtime_loads_and_reads_persistent_calibration(tmp_path):
     assert profile.valid is True
     assert profile.max_step == 120
     assert profile.accepted_samples == 24
+
+
+def test_runtime_from_app_dir_loads_package_and_configures_model(tmp_path, monkeypatch):
+    runtime_module = importlib.import_module("cs2_vision_runtime.runtime")
+    package_module = importlib.import_module("cs2_vision_runtime.package")
+    app_dir = tmp_path / "MyClient"
+    data_dir = tmp_path / "data"
+    package = SimpleNamespace(
+        dll_path=app_dir / "vision_runtime.dll",
+        native_directories=(app_dir / "resources" / "native",),
+        model_path=app_dir / "resources" / "model" / "best.onnx",
+        schema_path=app_dir / "resources" / "model" / "best.onnx.schema.json",
+        backend="ort-tensorrt",
+        cache_path=data_dir / "cache" / "tensorrt" / "runtime-id",
+        required_abi_major=2,
+        required_abi_minor=0,
+        required_features=15,
+        manifest_path=app_dir / "resources" / "runtime-manifest.json",
+    )
+    loaded = []
+    monkeypatch.setattr(
+        package_module.RuntimePackage,
+        "load",
+        classmethod(lambda cls, received_app, received_data: loaded.append(
+            (Path(received_app), Path(received_data))
+        ) or package),
+    )
+
+    created = []
+
+    def api_factory(dll_path=None, dll_directories=None):
+        api = FakeApi()
+        created.append((Path(dll_path), tuple(Path(value) for value in dll_directories), api))
+        return api
+
+    monkeypatch.setattr(runtime_module, "_RuntimeApi", api_factory)
+
+    runtime = VisionRuntime.from_app_dir(app_dir, data_dir=data_dir)
+
+    assert loaded == [(app_dir, data_dir)]
+    assert created[0][0] == package.dll_path
+    assert created[0][1] == package.native_directories
+    assert ("set_model", os.fsencode(package.model_path)) in created[0][2].calls
+    assert ("set_schema", os.fsencode(package.schema_path)) in created[0][2].calls
+    assert ("set_backend", b"ort-tensorrt") in created[0][2].calls
+    assert ("set_tensorrt_cache_path", os.fsencode(package.cache_path)) in created[0][2].calls
+    assert runtime.runtime_package is package
+    runtime.close()
 
 
 def test_runtime_calibration_path_failure_uses_last_error(tmp_path):
