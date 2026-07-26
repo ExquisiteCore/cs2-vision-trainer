@@ -12,6 +12,7 @@ dependencies = [
     "ultralytics>=8.3",
     "mss>=10.0",
     "pyyaml>=6.0",
+    "rp2350-hid-bridge==0.2.0",
 ]
 
 [project.optional-dependencies]
@@ -43,5 +44,6 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
+rp2350-hid-bridge = { path = "tools/rp2350_keymouse_bridge_firmware/sdk/python", editable = true }
 torch = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }

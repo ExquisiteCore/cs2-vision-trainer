@@ -204,6 +204,7 @@ dependencies = [
     { name = "numpy" },
     { name = "opencv-python" },
     { name = "pyyaml" },
+    { name = "rp2350-hid-bridge" },
     { name = "torch" },
     { name = "torchvision" },
     { name = "ultralytics" },
@@ -225,6 +226,7 @@ requires-dist = [
     { name = "opencv-python", specifier = ">=4.10" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.2" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "rp2350-hid-bridge", editable = "tools/rp2350_keymouse_bridge_firmware/sdk/python" },
     { name = "torch", specifier = ">=2.11", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchvision", specifier = ">=0.26", index = "https://download.pytorch.org/whl/cu128" },
     { name = "ultralytics", specifier = ">=8.3" },
@@ -1249,6 +1251,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/ac/c3/e2a2b89f2d3e2179a
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a/requests-2.34.2-py3-none-any.whl", hash = "sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0", size = 73075, upload-time = "2026-05-14T19:25:26.443Z" },
 ]
+
+[[package]]
+name = "rp2350-hid-bridge"
+version = "0.2.0"
+source = { editable = "tools/rp2350_keymouse_bridge_firmware/sdk/python" }
 
 [[package]]
 name = "scipy"
