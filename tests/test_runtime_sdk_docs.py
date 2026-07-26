@@ -187,6 +187,18 @@ def test_partner_controller_guide_is_a_complete_standalone_integration_contract(
         "RuntimeCompatibilityError",
         "RuntimeCallError",
         "RuntimeStateError",
+        "5329f7d",
+        "协议 v2",
+        "CAFE:2350",
+        "board.ping()",
+        "board.info()",
+        "board.caps()",
+        "board.mouse_move(20, 0)",
+        "board.mouse_move(-20, 0)",
+        "board.mouse_move(0, 20)",
+        "board.mouse_move(0, -20)",
+        "两秒控制租约",
+        "不要同时运行 hidctl",
         "接入验收清单",
     ):
         assert token in content
@@ -194,3 +206,28 @@ def test_partner_controller_guide_is_a_complete_standalone_integration_contract(
     assert "from cs2_vision_runtime import HidSession" not in content
     assert "hid_session=" not in content
     assert "runtime.stop_all()" not in content
+
+
+def test_hid_middleware_docs_use_the_public_controller_owned_attachment_contract():
+    firmware = _read("tools/rp2350_keymouse_bridge_firmware/README.md")
+    python_readme = _read(
+        "tools/rp2350_keymouse_bridge_firmware/sdk/python/README.md"
+    )
+    python_integration = _read(
+        "tools/rp2350_keymouse_bridge_firmware/sdk/python/INTEGRATION.md"
+    )
+
+    assert "C++17 共享库 SDK 子模块" in firmware
+    assert "C++17 仅头文件 SDK 子模块" not in firmware
+
+    for content in (python_readme, python_integration):
+        for token in (
+            "native_handle",
+            "dll_path",
+            "vision.attach_hid_session",
+            "hid_dll_path=hid.dll_path",
+            "主控",
+        ):
+            assert token in content
+        assert "_binding_for_runtime()" not in content
+        assert "取得内部绑定" not in content
