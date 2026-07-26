@@ -204,7 +204,6 @@ dependencies = [
     { name = "numpy" },
     { name = "opencv-python" },
     { name = "pyyaml" },
-    { name = "rp2350-hid-bridge" },
     { name = "torch" },
     { name = "torchvision" },
     { name = "ultralytics" },
@@ -216,6 +215,7 @@ accel = [
 ]
 dev = [
     { name = "pytest" },
+    { name = "rp2350-hid-bridge" },
 ]
 
 [package.metadata]
@@ -226,7 +226,7 @@ requires-dist = [
     { name = "opencv-python", specifier = ">=4.10" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.2" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rp2350-hid-bridge", editable = "tools/rp2350_keymouse_bridge_firmware/sdk/python" },
+    { name = "rp2350-hid-bridge", marker = "extra == 'dev'", editable = "tools/rp2350_keymouse_bridge_firmware/sdk/python" },
     { name = "torch", specifier = ">=2.11", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchvision", specifier = ">=0.26", index = "https://download.pytorch.org/whl/cu128" },
     { name = "ultralytics", specifier = ">=8.3" },

@@ -9,10 +9,8 @@ Set-StrictMode -Version Latest
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $packageSource = Join-Path $projectRoot 'src\cs2_vision_runtime'
-$hidProjectRoot = Join-Path $projectRoot 'tools\rp2350_keymouse_bridge_firmware\sdk\python'
 $templateRoot = Join-Path $projectRoot 'packaging\python-runtime-sdk'
 $versionFile = Join-Path $packageSource '_version.py'
-$hidVersionFile = Join-Path $hidProjectRoot 'rp2350_hid_bridge\_version.py'
 
 $versionText = Get-Content -LiteralPath $versionFile -Raw
 $versionMatch = [regex]::Match(
@@ -24,16 +22,6 @@ if (-not $versionMatch.Success) {
 }
 $sdkVersion = $versionMatch.Groups['version'].Value
 
-$hidVersionText = Get-Content -LiteralPath $hidVersionFile -Raw
-$hidVersionMatch = [regex]::Match(
-    $hidVersionText,
-    '__version__\s*=\s*["''](?<version>\d+\.\d+\.\d+)["'']'
-)
-if (-not $hidVersionMatch.Success) {
-    throw "Unable to read a three-part HID SDK version from $hidVersionFile"
-}
-$hidSdkVersion = $hidVersionMatch.Groups['version'].Value
-
 $outputFullPath = [IO.Path]::GetFullPath(
     $(if ([IO.Path]::IsPathRooted($OutputDir)) {
         $OutputDir
@@ -43,11 +31,6 @@ $outputFullPath = [IO.Path]::GetFullPath(
     })
 )
 New-Item -ItemType Directory -Path $outputFullPath -Force | Out-Null
-
-& uv build --wheel --out-dir $outputFullPath $hidProjectRoot
-if ($LASTEXITCODE -ne 0) {
-    throw "HID SDK uv build failed with exit code $LASTEXITCODE"
-}
 
 $temporaryRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd(
     [IO.Path]::DirectorySeparatorChar,
@@ -67,26 +50,14 @@ try {
         throw "uv build failed with exit code $LASTEXITCODE"
     }
 
-    $runtimeWheels = @(
-        Get-ChildItem -LiteralPath $outputFullPath -Filter 'cs2_vision_runtime_sdk-*.whl'
+    $wheel = @(
+        Get-ChildItem -LiteralPath $outputFullPath `
+            -Filter "cs2_vision_runtime_sdk-$sdkVersion-*.whl"
     )
-    $hidWheels = @(
-        Get-ChildItem -LiteralPath $outputFullPath -Filter 'rp2350_hid_bridge-*.whl'
-    )
-    $runtimeWheel = @(
-        $runtimeWheels | Where-Object Name -Like "cs2_vision_runtime_sdk-$sdkVersion-*.whl"
-    )
-    $hidWheel = @(
-        $hidWheels | Where-Object Name -Like "rp2350_hid_bridge-$hidSdkVersion-*.whl"
-    )
-    if ($runtimeWheels.Count -ne 1 -or $runtimeWheel.Count -ne 1) {
+    if ($wheel.Count -ne 1) {
         throw "Expected exactly one SDK wheel for version $sdkVersion in $outputFullPath"
     }
-    if ($hidWheels.Count -ne 1 -or $hidWheel.Count -ne 1) {
-        throw "Expected exactly one HID SDK wheel for version $hidSdkVersion in $outputFullPath"
-    }
-    Write-Host "hid_python_sdk version=$hidSdkVersion wheel=$($hidWheel[0].FullName)"
-    Write-Host "python_runtime_sdk version=$sdkVersion wheel=$($runtimeWheel[0].FullName)"
+    Write-Host "python_runtime_sdk version=$sdkVersion wheel=$($wheel[0].FullName)"
 }
 finally {
     if (Test-Path -LiteralPath $stageRoot) {
