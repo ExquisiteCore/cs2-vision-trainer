@@ -129,7 +129,8 @@ D:\project\cs2-vision-trainer\tools\cpp_analyzer\build\windows\x64\release\visio
 
 `vision_analyzer.exe` 是命令行版本。
 
-`vision_runtime.dll` 是给 Python SDK 或其他程序调用的版本。
+`vision_runtime.dll` 是视觉运行库；`rp2350_hid_bridge.dll` 是唯一拥有 COM 口、心跳和
+请求序列的 HID 共享库。Python 调用端必须把两者作为一组部署。
 
 ## 4. 准备模型
 
@@ -373,19 +374,22 @@ xmake run vision_analyzer `
 
 ### 10.2 使用 Python SDK 调 DLL
 
-现成示例会先做启动标定，再分别管理移动和开火开关：
+现成示例由调用端创建一个 `HidSession`，把同一个原生句柄交给视觉 DLL，然后按需加载
+或执行标定：
 
 ```powershell
 cd D:\project\cs2-vision-trainer
 uv run python examples\runtime_live_move.py `
-  --backend opencv-onnx `
+  --app-dir .\dist\MyClient `
+  --data-dir "$env:LOCALAPPDATA\MyClient" `
   --hid-port COM3 `
   --player-side ct `
   --enable-live-output
 ```
 
 `--enable-live-output` 是显式硬件授权；不加时脚本会在标定前直接退出。按 `Ctrl+C` 时，
-脚本会在 `finally` 中关闭开火、关闭移动并调用 `stop_all()`。
+退出 `armed_output()` 只关闭开火和视觉移动，不会释放调用端保持的键；最外层会话结束
+时才在 `finally` 中调用 `hid.stop_all()`。
 
 ## 11. 开启左键
 
@@ -404,11 +408,12 @@ Python 示例增加：
 ```
 
 Python SDK 的移动与开火是两个独立开关：`set_output_enabled(True)` 只解锁移动，
-`set_fire_enabled(True)` 才解锁自动开火。退出时必须分别关闭并执行 `stop_all()`。
+`set_fire_enabled(True)` 才解锁自动开火。视觉撤销不会全局释放，紧急停止或整个控制
+会话结束时由调用端执行 `hid.stop_all()`。
 
 ## 12. 最常见的问题
 
-### 找不到 vision_runtime.dll
+### 找不到 vision_runtime.dll 或 rp2350_hid_bridge.dll
 
 先编译：
 

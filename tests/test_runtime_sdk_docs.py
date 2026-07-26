@@ -13,6 +13,9 @@ def test_app_local_example_owns_paths_and_uses_safe_runtime_lifecycle():
 
     for token in (
         "VisionRuntime.from_app_dir",
+        "HidSession",
+        "hid_session=hid",
+        "hid.stop_all()",
         "Path(sys.executable).resolve().parent",
         "--app-dir",
         "--data-dir",
@@ -29,6 +32,25 @@ def test_app_local_example_owns_paths_and_uses_safe_runtime_lifecycle():
         assert token in content
 
     assert "CS2_VISION_RUNTIME_DLL" not in content
+    assert "runtime.stop_all()" not in content
+    assert "set_hid_port" not in content
+
+
+def test_live_example_shares_one_caller_owned_hid_session():
+    content = _read("examples/runtime_live_move.py")
+
+    for token in (
+        "HidSession",
+        "VisionRuntime.from_app_dir",
+        "hid_session=hid",
+        "with runtime.armed_output",
+        "hid.stop_all()",
+        "process_next()",
+    ):
+        assert token in content
+
+    assert "runtime.stop_all()" not in content
+    assert "set_hid_port" not in content
 
 
 def test_dxgi_dryrun_supports_app_local_and_low_level_development_modes():
@@ -50,6 +72,14 @@ def test_python_runtime_sdk_guide_covers_frozen_client_contract():
         "runtime-manifest.json",
         "resources/vision-runtime",
         "vision_runtime.dll",
+        "rp2350_hid_bridge.dll",
+        "HidSession",
+        "hid_session=hid",
+        "hid.stop_all()",
+        "一个 COM 口",
+        "process_next()",
+        "同步",
+        "线程",
         "uv",
         "PyInstaller",
         "Nuitka",
@@ -75,8 +105,12 @@ def test_top_level_docs_link_to_the_complete_python_sdk_guide():
     link = "docs/PYTHON_RUNTIME_SDK_INTEGRATION.md"
     readme = _read("README.md")
     usage = _read("docs/USAGE.md")
+    build = _read("docs/BUILD.md")
 
     assert link in readme
     assert "PYTHON_RUNTIME_SDK_INTEGRATION.md" in usage
+    assert "rp2350_hid_bridge.dll" in readme
+    assert "rp2350_hid_bridge.dll" in usage
+    assert "rp2350_hid_bridge.dll" in build
     assert "2048 counts" not in readme
     assert "2048 counts" not in usage

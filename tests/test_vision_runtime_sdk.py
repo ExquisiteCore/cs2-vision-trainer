@@ -5,6 +5,7 @@ import importlib.util
 import os
 import re
 import weakref
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -850,17 +851,18 @@ def test_armed_loop_always_disarms_after_processing_error():
         def __init__(self):
             self.calls = []
 
-        def set_output_enabled(self, value):
-            self.calls.append(("output", value))
-
-        def set_fire_enabled(self, value):
-            self.calls.append(("fire", value))
+        @contextmanager
+        def armed_output(self, *, fire):
+            self.calls.append(("output", True))
+            self.calls.append(("fire", fire))
+            try:
+                yield
+            finally:
+                self.calls.append(("fire", False))
+                self.calls.append(("output", False))
 
         def process_next(self):
             raise RuntimeError("capture failed")
-
-        def stop_all(self):
-            self.calls.append(("stop_all",))
 
     runtime = ExplodingRuntime()
     with pytest.raises(RuntimeError, match="capture failed"):
@@ -870,5 +872,4 @@ def test_armed_loop_always_disarms_after_processing_error():
         ("fire", True),
         ("fire", False),
         ("output", False),
-        ("stop_all",),
     ]

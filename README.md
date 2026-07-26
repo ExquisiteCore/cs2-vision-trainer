@@ -179,7 +179,7 @@ xmake run vision_analyzer --backend opencv-onnx --model D:\project\cs2-vision-tr
 [Python Runtime SDK 接入指南](docs/PYTHON_RUNTIME_SDK_INTEGRATION.md)。下文手工 DLL、
 模型路径和环境变量只用于源码开发与诊断。
 
-C++ 运行时也可以编译为 `vision_runtime.dll`，然后通过 Python SDK
+C++ 运行时会产出 `vision_runtime.dll` 和 `rp2350_hid_bridge.dll`，然后通过 Python SDK
 `cs2_vision_runtime` 被其他程序直接调用，不需要启动 `vision_analyzer.exe`。
 Python SDK 是可选集成方式；如果你的程序直接运行 `vision_analyzer.exe`，不需要安装或
 调用这个 Python 包，但父仓仍会维护它与 DLL 的接口兼容性。
@@ -196,50 +196,33 @@ cd ..\..
 Python 全自动调用顺序（无 UI）：
 
 ```python
-from cs2_vision_runtime import VisionRuntime
+from cs2_vision_runtime import HidSession, VisionRuntime
 
-with VisionRuntime() as rt:
-    rt.set_model(
-        "runs/detect/train/weights/best.onnx",
-        schema_path="runs/detect/train/weights/best.onnx.schema.json",
-        backend="ort-tensorrt",
-    )
-    rt.set_hid_port("COM3")
-
-    # 调用端选择一个文件。有效缓存加载时不会产生标定移动。
-    rt.set_hid_calibration_path("hid-calibration.json")
-    profile = rt.get_hid_calibration()
-    if not profile.valid:
-        # 仅第一次或调用端主动清空/切换路径后标定。
-        profile = rt.calibrate_hid(adapter=0, output=0)
-    print(profile.quality, profile.x_counts_per_pixel, profile.y_counts_per_pixel)
-
-    rt.set_fire_policy(
-        body_enabled=True,
-        head_confidence=0.35,
-        body_confidence=0.45,
-        cooldown_frames=3,
-    )
-    rt.open_dxgi(
-        adapter=0,
-        output=0,
-        player_side="ct",
-        hid_port="COM3",
-        dry_run=False,
-    )
-
+with HidSession("COM3", app_dir=app_dir) as hid:
     try:
-        rt.set_output_enabled(True)  # 允许 DLL 输出瞄准移动
-        rt.set_fire_enabled(True)    # 允许 DLL 自动开火
-        while rt.process_next() is not None:
-            pass
+        with VisionRuntime.from_app_dir(
+            app_dir,
+            data_dir=data_dir,
+            hid_session=hid,
+        ) as rt:
+            rt.set_hid_calibration_path(data_dir / "hid-calibration.json")
+            profile = rt.get_hid_calibration()
+            if not profile.valid:
+                profile = rt.calibrate_hid(adapter=0, output=0)
+
+            rt.open_dxgi(output=0, player_side="ct", dry_run=False)
+            with rt.armed_output(fire=True):
+                while rt.process_next() is not None:
+                    pass
     finally:
-        rt.set_fire_enabled(False)
-        rt.set_output_enabled(False)
-        rt.stop_all()
+        hid.stop_all()
 ```
 
-`set_output_enabled` 与 `set_fire_enabled` 是两个独立开关。新建运行时默认都关闭；
+调用端创建的一个 `HidSession` 同时承载键盘和视觉鼠标请求；视觉 runtime 不会再次打开
+COM 口。`set_output_enabled` 与 `set_fire_enabled` 是两个独立开关，新建运行时默认都关闭；
+退出 `armed_output()` 只撤销视觉输出，不释放调用端保持的键。整个会话结束时由调用端
+显式执行 `hid.stop_all()`。
+
 标定是普通输出关闭时唯一允许发送的受控测试移动。成功 profile 会原子保存；损坏文件、
 失败保存和失败重标定都不会替换旧 profile。DLL 不识别账号，也不自动判断设置变化：
 调用端需要重标定时显式再次调用 `calibrate_hid()`。完整命令行示例见
@@ -251,10 +234,11 @@ with VisionRuntime() as rt:
 反向归位。如果范围内没有可靠的视觉移动，API 返回明确的
 `HID calibration input not ready`，并保留此前有效的内存和文件 profile。
 
-如果 DLL 不在默认构建目录，可以指定环境变量：
+源码诊断时如果 DLL 不在默认构建目录，可以分别指定：
 
 ```powershell
 $env:CS2_VISION_RUNTIME_DLL="D:\path\to\vision_runtime.dll"
+$env:RP2350_HID_BRIDGE_DLL="D:\path\to\rp2350_hid_bridge.dll"
 ```
 
 当 DLL 位于便携包的 `app` 目录时，包装层会自动注册包内的 TensorRT、cuDNN、
@@ -268,7 +252,7 @@ GTX 1080 Ti/SM61 便携包的构建命令见 [docs/BUILD.md](docs/BUILD.md)，�
 
 - RP2350 Rust 固件。
 - `tools\hidctl` 主机端命令行工具。
-- `sdk\cpp` C++17 仅头文件 SDK。
+- `sdk\cpp` C++17 共享库 SDK。
 - `sdk\python` Python SDK。
 - `tools\webui` Web Serial 调试页面。
 

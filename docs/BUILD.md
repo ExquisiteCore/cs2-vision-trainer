@@ -233,7 +233,7 @@ best.onnx.schema.json
 ## 4.1 Python SDK 调用运行时 DLL
 
 主仓库提供 `cs2_vision_runtime` Python 包。它通过 `ctypes` 加载
-`vision_runtime.dll`，适合给其他 Python 程序直接集成。
+`vision_runtime.dll` 与 `rp2350_hid_bridge.dll`，适合给其他 Python 程序直接集成。
 这是可选调用方式；直接使用 `vision_analyzer.exe` 的程序不需要 Python SDK。
 
 最小试运行示例：
@@ -259,34 +259,25 @@ with VisionRuntime() as runtime:
 DXGI 实时示例：
 
 ```python
-from cs2_vision_runtime import VisionRuntime
+from cs2_vision_runtime import HidSession, VisionRuntime
 
-with VisionRuntime() as runtime:
-    runtime.set_model(
-        "runs/detect/train/weights/best.onnx",
-        schema_path="runs/detect/train/weights/best.onnx.schema.json",
-        backend="opencv-onnx",
-    )
-    runtime.set_hid_port("COM3")
-    profile = runtime.calibrate_hid(adapter=0, output=0)
-    print(profile.quality, profile.x_counts_per_pixel, profile.y_counts_per_pixel)
-    runtime.set_fire_policy(
-        body_enabled=True,
-        head_confidence=0.35,
-        body_confidence=0.45,
-        cooldown_frames=3,
-    )
-    runtime.open_dxgi(output=0, player_side="ct", hid_port="COM3", dry_run=False)
-
+with HidSession("COM3", app_dir=app_dir) as hid:
     try:
-        runtime.set_output_enabled(True)
-        runtime.set_fire_enabled(False)
-        while runtime.process_next() is not None:
-            pass
+        with VisionRuntime.from_app_dir(
+            app_dir,
+            data_dir=data_dir,
+            hid_session=hid,
+        ) as runtime:
+            runtime.set_hid_calibration_path(data_dir / "hid-calibration.json")
+            profile = runtime.get_hid_calibration()
+            if not profile.valid:
+                profile = runtime.calibrate_hid(adapter=0, output=0)
+            runtime.open_dxgi(output=0, player_side="ct", dry_run=False)
+            with runtime.armed_output(fire=False):
+                while runtime.process_next() is not None:
+                    pass
     finally:
-        runtime.set_fire_enabled(False)
-        runtime.set_output_enabled(False)
-        runtime.stop_all()
+        hid.stop_all()
 ```
 
 新建运行时的移动和开火开关默认关闭。`calibrate_hid()` 是启动时受控标定；正常实时
@@ -294,7 +285,7 @@ with VisionRuntime() as runtime:
 `set_fire_enabled(True)`。推荐直接运行 `examples\runtime_live_move.py`：
 
 ```powershell
-uv run python examples\runtime_live_move.py --hid-port COM3 --player-side ct --enable-live-output
+uv run python examples\runtime_live_move.py --app-dir .\dist\MyClient --hid-port COM3 --player-side ct --enable-live-output
 ```
 
 只有确认需要自动开火时才额外增加 `--click`。
@@ -356,7 +347,8 @@ cmake --build build --config Release
 .\build\Release\test_protocol.exe
 ```
 
-这个 SDK 仅包含头文件。其他 CMake 项目可以这样引用：
+这个 SDK 构建稳定 C ABI 的 `rp2350_hid_bridge.dll` 和 C++ RAII 包装。其他 CMake
+项目可以这样引用：
 
 ```cmake
 add_subdirectory(path/to/rp2350-hid-bridge-cpp)
@@ -374,15 +366,13 @@ cd tools\rp2350_keymouse_bridge_firmware\sdk\python
 安装：
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python -m pip install -U pip
-.\.venv\Scripts\python -m pip install -e .
+uv sync
 ```
 
 测试：
 
 ```powershell
-.\.venv\Scripts\python -m unittest discover -s tests
+uv run python -m unittest discover -s tests
 ```
 
 列出串口：
