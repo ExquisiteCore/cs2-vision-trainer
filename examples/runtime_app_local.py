@@ -5,7 +5,8 @@ import os
 import sys
 from pathlib import Path
 
-from cs2_vision_runtime import HidSession, VisionRuntime
+from cs2_vision_runtime import VisionRuntime
+from rp2350_hid_bridge import HidSession
 
 
 DEFAULT_APP_DIR = Path(sys.executable).resolve().parent
@@ -23,8 +24,8 @@ def print_action(action) -> None:
     )
 
 
-def process_actions(runtime: VisionRuntime, show_every: int) -> None:
-    for action in runtime.iter_actions():
+def process_actions(vision: VisionRuntime, show_every: int) -> None:
+    for action in vision.iter_actions():
         if action.frame_index % show_every == 0:
             print_action(action)
 
@@ -46,14 +47,25 @@ def load_or_calibrate(
     return runtime.calibrate_hid(adapter=adapter, output=output)
 
 
-def run_runtime(args, app_dir: Path, data_dir: Path, calibration_path: Path, hid) -> None:
+def run_runtime(
+    args,
+    app_dir: Path,
+    data_dir: Path,
+    calibration_path: Path,
+    board: HidSession | None,
+) -> None:
     with VisionRuntime.from_app_dir(
         app_dir,
         data_dir=data_dir,
-        hid_session=hid,
-    ) as runtime:
-        runtime.set_frame_limits(max_frames=args.max_frames, warmup_frames=3)
-        runtime.set_fire_policy(
+    ) as vision:
+        if board is not None:
+            vision.attach_hid_session(
+                board.native_handle,
+                hid_dll_path=board.dll_path,
+            )
+
+        vision.set_frame_limits(max_frames=args.max_frames, warmup_frames=3)
+        vision.set_fire_policy(
             body_enabled=True,
             head_confidence=0.35,
             body_confidence=0.45,
@@ -62,7 +74,7 @@ def run_runtime(args, app_dir: Path, data_dir: Path, calibration_path: Path, hid
 
         if args.enable_live_output:
             profile = load_or_calibrate(
-                runtime,
+                vision,
                 calibration_path,
                 recalibrate=args.recalibrate,
                 adapter=args.adapter,
@@ -73,7 +85,7 @@ def run_runtime(args, app_dir: Path, data_dir: Path, calibration_path: Path, hid
                 f"noise={profile.noise_px:.3f} samples={profile.accepted_samples}"
             )
 
-        runtime.open_dxgi(
+        vision.open_dxgi(
             adapter=args.adapter,
             output=args.output,
             player_side=args.player_side,
@@ -82,11 +94,11 @@ def run_runtime(args, app_dir: Path, data_dir: Path, calibration_path: Path, hid
 
         if args.enable_live_output:
             print("真实输出已显式解锁；视觉撤销不会释放调用端保持的键。")
-            with runtime.armed_output(fire=args.click):
-                process_actions(runtime, args.show_every)
+            with vision.armed_output(fire=args.click):
+                process_actions(vision, args.show_every)
         else:
             print("DXGI dry-run：没有打开 COM，不会产生鼠标或按键输出。")
-            process_actions(runtime, args.show_every)
+            process_actions(vision, args.show_every)
 
 
 def main() -> None:
@@ -122,11 +134,11 @@ def main() -> None:
     )
 
     if args.enable_live_output:
-        with HidSession(args.hid_port, app_dir=app_dir) as hid:
+        with HidSession(args.hid_port, app_dir=app_dir) as board:
             try:
-                run_runtime(args, app_dir, data_dir, calibration_path, hid)
+                run_runtime(args, app_dir, data_dir, calibration_path, board)
             finally:
-                hid.stop_all()
+                board.stop_all()
     else:
         run_runtime(args, app_dir, data_dir, calibration_path, None)
 

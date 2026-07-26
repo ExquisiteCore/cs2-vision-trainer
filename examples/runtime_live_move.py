@@ -13,9 +13,9 @@ DEFAULT_DATA_DIR = Path(
 ) / "CS2VisionClient"
 
 
-def process_loop(runtime: VisionRuntime, show_every: int) -> None:
+def process_loop(vision: VisionRuntime, show_every: int) -> None:
     while True:
-        action = runtime.process_next()
+        action = vision.process_next()
         if action is None:
             return
         if action.frame_index % show_every == 0:
@@ -27,13 +27,13 @@ def process_loop(runtime: VisionRuntime, show_every: int) -> None:
 
 
 def run_armed_loop(
-    runtime: VisionRuntime,
+    vision: VisionRuntime,
     *,
     fire_enabled: bool,
     show_every: int,
 ) -> None:
-    with runtime.armed_output(fire=fire_enabled):
-        process_loop(runtime, show_every)
+    with vision.armed_output(fire=fire_enabled):
+        process_loop(vision, show_every)
 
 
 def load_or_calibrate(
@@ -102,17 +102,20 @@ def main() -> None:
         else data_dir / "hid-calibration.json"
     )
 
-    with HidSession(args.hid_port, app_dir=app_dir) as hid:
+    with HidSession(args.hid_port, app_dir=app_dir) as board:
         try:
             with VisionRuntime.from_app_dir(
                 app_dir,
                 data_dir=data_dir,
-                hid_session=hid,
-            ) as runtime:
+            ) as vision:
+                vision.attach_hid_session(
+                    board.native_handle,
+                    hid_dll_path=board.dll_path,
+                )
                 print("一个 COM 口已由调用端打开，并共享给 vision_runtime.dll。")
                 print("正在读取本地标定；仅在缺失或显式重标定时移动视角……")
                 profile = load_or_calibrate(
-                    runtime,
+                    vision,
                     calibration_path,
                     recalibrate=args.recalibrate,
                     adapter=args.adapter,
@@ -122,13 +125,13 @@ def main() -> None:
                     f"标定完成 quality={profile.quality:.3f} "
                     f"noise={profile.noise_px:.3f} samples={profile.accepted_samples}"
                 )
-                runtime.set_fire_policy(
+                vision.set_fire_policy(
                     body_enabled=True,
                     head_confidence=0.35,
                     body_confidence=0.45,
                     cooldown_frames=3,
                 )
-                runtime.open_dxgi(
+                vision.open_dxgi(
                     adapter=args.adapter,
                     output=args.output,
                     player_side=args.player_side,
@@ -136,10 +139,10 @@ def main() -> None:
                 )
 
                 print("DXGI 已打开；Ctrl+C 只撤销视觉输出，随后结束整个 HID 会话。")
-                with runtime.armed_output(fire=args.click):
-                    process_loop(runtime, args.show_every)
+                with vision.armed_output(fire=args.click):
+                    process_loop(vision, args.show_every)
         finally:
-            hid.stop_all()
+            board.stop_all()
 
 
 if __name__ == "__main__":

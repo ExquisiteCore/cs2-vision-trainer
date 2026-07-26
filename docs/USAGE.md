@@ -374,8 +374,26 @@ xmake run vision_analyzer `
 
 ### 10.2 使用 Python SDK 调 DLL
 
-现成示例由调用端创建一个 `HidSession`，把同一个原生句柄交给视觉 DLL，然后按需加载
-或执行标定：
+主控分别安装两个独立 Python SDK；Vision wheel 保持零依赖，板子 SDK 单独拥有
+`HidSession` 和 COM。主控按下面的边界把同一个原生 session 交给视觉 DLL：
+
+```python
+from rp2350_hid_bridge import HidSession
+from cs2_vision_runtime import VisionRuntime
+
+with HidSession("COM3", app_dir=app_dir) as board:
+    try:
+        with VisionRuntime.from_app_dir(app_dir, data_dir=data_dir) as vision:
+            vision.attach_hid_session(
+                board.native_handle,
+                hid_dll_path=board.dll_path,
+            )
+            # 加载标定、打开 DXGI，再进入 armed_output。
+    finally:
+        board.stop_all()
+```
+
+现成示例使用同一边界按需加载或执行标定：
 
 ```powershell
 cd D:\project\cs2-vision-trainer
@@ -389,7 +407,7 @@ uv run python examples\runtime_live_move.py `
 
 `--enable-live-output` 是显式硬件授权；不加时脚本会在标定前直接退出。按 `Ctrl+C` 时，
 退出 `armed_output()` 只关闭开火和视觉移动，不会释放调用端保持的键；最外层会话结束
-时才在 `finally` 中调用 `hid.stop_all()`。
+时才在 `finally` 中调用 `board.stop_all()`。
 
 ## 11. 开启左键
 
@@ -409,7 +427,7 @@ Python 示例增加：
 
 Python SDK 的移动与开火是两个独立开关：`set_output_enabled(True)` 只解锁移动，
 `set_fire_enabled(True)` 才解锁自动开火。视觉撤销不会全局释放，紧急停止或整个控制
-会话结束时由调用端执行 `hid.stop_all()`。
+会话结束时由主控执行 `board.stop_all()`。
 
 ## 12. 最常见的问题
 

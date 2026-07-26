@@ -12,10 +12,13 @@ def test_app_local_example_owns_paths_and_uses_safe_runtime_lifecycle():
     content = _read("examples/runtime_app_local.py")
 
     for token in (
+        "from rp2350_hid_bridge import HidSession",
+        "from cs2_vision_runtime import VisionRuntime",
         "VisionRuntime.from_app_dir",
-        "HidSession",
-        "hid_session=hid",
-        "hid.stop_all()",
+        "vision.attach_hid_session",
+        "board.native_handle",
+        "hid_dll_path=board.dll_path",
+        "board.stop_all()",
         "Path(sys.executable).resolve().parent",
         "--app-dir",
         "--data-dir",
@@ -34,23 +37,30 @@ def test_app_local_example_owns_paths_and_uses_safe_runtime_lifecycle():
     assert "CS2_VISION_RUNTIME_DLL" not in content
     assert "runtime.stop_all()" not in content
     assert "set_hid_port" not in content
+    assert "from cs2_vision_runtime import HidSession" not in content
+    assert "hid_session=" not in content
 
 
 def test_live_example_shares_one_caller_owned_hid_session():
     content = _read("examples/runtime_live_move.py")
 
     for token in (
-        "HidSession",
+        "from rp2350_hid_bridge import HidSession",
+        "from cs2_vision_runtime import VisionRuntime",
         "VisionRuntime.from_app_dir",
-        "hid_session=hid",
-        "with runtime.armed_output",
-        "hid.stop_all()",
+        "vision.attach_hid_session",
+        "board.native_handle",
+        "hid_dll_path=board.dll_path",
+        "with vision.armed_output",
+        "board.stop_all()",
         "process_next()",
     ):
         assert token in content
 
     assert "runtime.stop_all()" not in content
     assert "set_hid_port" not in content
+    assert "from cs2_vision_runtime import HidSession" not in content
+    assert "hid_session=" not in content
 
 
 def test_dxgi_dryrun_supports_app_local_and_low_level_development_modes():
@@ -68,15 +78,21 @@ def test_python_runtime_sdk_guide_covers_frozen_client_contract():
     content = _read("docs/PYTHON_RUNTIME_SDK_INTEGRATION.md")
 
     for token in (
+        "from rp2350_hid_bridge import HidSession",
+        "from cs2_vision_runtime import VisionRuntime",
         "VisionRuntime.from_app_dir",
         "runtime-manifest.json",
         "resources/vision-runtime",
         "vision_runtime.dll",
         "rp2350_hid_bridge.dll",
-        "HidSession",
-        "hid_session=hid",
-        "hid.stop_all()",
+        "vision.attach_hid_session",
+        "board.native_handle",
+        "hid_dll_path=board.dll_path",
+        "board.stop_all()",
         "一个 COM 口",
+        "两个独立 Python SDK",
+        "零依赖",
+        "主控拥有",
         "process_next()",
         "同步",
         "线程",
@@ -99,6 +115,30 @@ def test_python_runtime_sdk_guide_covers_frozen_client_contract():
         assert token in content
 
     assert "from_bundle" not in content
+    assert "from cs2_vision_runtime import HidSession" not in content
+    assert "hid_session=" not in content
+    assert "runtime.stop_all()" not in content
+
+
+def test_public_docs_keep_hid_middleware_owned_by_the_controller():
+    for relative in (
+        "README.md",
+        "docs/BUILD.md",
+        "docs/USAGE.md",
+        "tools/cpp_analyzer/packaging/sm61/package/README_中文.md",
+    ):
+        content = _read(relative)
+        for token in (
+            "native_handle",
+            "hid_dll_path",
+            "board.stop_all()",
+            "零依赖",
+            "主控",
+        ):
+            assert token in content, f"{relative} must contain {token}"
+        assert "from cs2_vision_runtime import HidSession" not in content
+        assert "hid_session=" not in content
+        assert "runtime.stop_all()" not in content
 
 
 def test_top_level_docs_link_to_the_complete_python_sdk_guide():

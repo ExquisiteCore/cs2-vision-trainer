@@ -196,32 +196,37 @@ cd ..\..
 Python 全自动调用顺序（无 UI）：
 
 ```python
-from cs2_vision_runtime import HidSession, VisionRuntime
+from rp2350_hid_bridge import HidSession
+from cs2_vision_runtime import VisionRuntime
 
-with HidSession("COM3", app_dir=app_dir) as hid:
+with HidSession("COM3", app_dir=app_dir) as board:
     try:
         with VisionRuntime.from_app_dir(
             app_dir,
             data_dir=data_dir,
-            hid_session=hid,
-        ) as rt:
-            rt.set_hid_calibration_path(data_dir / "hid-calibration.json")
-            profile = rt.get_hid_calibration()
+        ) as vision:
+            vision.attach_hid_session(
+                board.native_handle,
+                hid_dll_path=board.dll_path,
+            )
+            vision.set_hid_calibration_path(data_dir / "hid-calibration.json")
+            profile = vision.get_hid_calibration()
             if not profile.valid:
-                profile = rt.calibrate_hid(adapter=0, output=0)
+                profile = vision.calibrate_hid(adapter=0, output=0)
 
-            rt.open_dxgi(output=0, player_side="ct", dry_run=False)
-            with rt.armed_output(fire=True):
-                while rt.process_next() is not None:
+            vision.open_dxgi(output=0, player_side="ct", dry_run=False)
+            with vision.armed_output(fire=True):
+                while vision.process_next() is not None:
                     pass
     finally:
-        hid.stop_all()
+        board.stop_all()
 ```
 
-调用端创建的一个 `HidSession` 同时承载键盘和视觉鼠标请求；视觉 runtime 不会再次打开
-COM 口。`set_output_enabled` 与 `set_fire_enabled` 是两个独立开关，新建运行时默认都关闭；
-退出 `armed_output()` 只撤销视觉输出，不释放调用端保持的键。整个会话结束时由调用端
-显式执行 `hid.stop_all()`。
+主控分别安装两个独立 Python SDK：Vision wheel 是零依赖包装层，板子 wheel 单独提供
+`HidSession`。主控创建的一个 session 同时承载键盘和视觉鼠标请求，再用
+`native_handle` 与 `hid_dll_path` 显式注入视觉 runtime，因此不会再次打开 COM 口。
+`set_output_enabled` 与 `set_fire_enabled` 是两个独立开关；退出 `armed_output()` 只撤销
+视觉输出，不释放主控保持的键。整个会话结束时由主控执行 `board.stop_all()`。
 
 标定是普通输出关闭时唯一允许发送的受控测试移动。成功 profile 会原子保存；损坏文件、
 失败保存和失败重标定都不会替换旧 profile。DLL 不识别账号，也不自动判断设置变化：

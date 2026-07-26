@@ -259,26 +259,34 @@ with VisionRuntime() as runtime:
 DXGI 实时示例：
 
 ```python
-from cs2_vision_runtime import HidSession, VisionRuntime
+from rp2350_hid_bridge import HidSession
+from cs2_vision_runtime import VisionRuntime
 
-with HidSession("COM3", app_dir=app_dir) as hid:
+with HidSession("COM3", app_dir=app_dir) as board:
     try:
         with VisionRuntime.from_app_dir(
             app_dir,
             data_dir=data_dir,
-            hid_session=hid,
-        ) as runtime:
-            runtime.set_hid_calibration_path(data_dir / "hid-calibration.json")
-            profile = runtime.get_hid_calibration()
+        ) as vision:
+            vision.attach_hid_session(
+                board.native_handle,
+                hid_dll_path=board.dll_path,
+            )
+            vision.set_hid_calibration_path(data_dir / "hid-calibration.json")
+            profile = vision.get_hid_calibration()
             if not profile.valid:
-                profile = runtime.calibrate_hid(adapter=0, output=0)
-            runtime.open_dxgi(output=0, player_side="ct", dry_run=False)
-            with runtime.armed_output(fire=False):
-                while runtime.process_next() is not None:
+                profile = vision.calibrate_hid(adapter=0, output=0)
+            vision.open_dxgi(output=0, player_side="ct", dry_run=False)
+            with vision.armed_output(fire=False):
+                while vision.process_next() is not None:
                     pass
     finally:
-        hid.stop_all()
+        board.stop_all()
 ```
+
+这里由主控分别安装两个独立 Python SDK；Vision wheel 保持零依赖。主控拥有板子中间件，
+通过 `native_handle` 与 `hid_dll_path` 把同一个原生 session 注入视觉 DLL。视觉退出只撤销
+自身输出；只有主控调用 `board.stop_all()` 才全局释放键鼠状态。
 
 新建运行时的移动和开火开关默认关闭。`calibrate_hid()` 是启动时受控标定；正常实时
 输出仍必须显式调用 `set_output_enabled(True)`，自动开火还必须单独调用

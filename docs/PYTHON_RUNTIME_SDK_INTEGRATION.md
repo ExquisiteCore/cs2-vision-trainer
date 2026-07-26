@@ -1,14 +1,15 @@
 # Python Runtime SDK 接入指南
 
-本文面向把调用端 Python 程序冻结成 EXE 的开发者。正式方案由两个纯 Python wheel、
+本文面向把调用端 Python 程序冻结成 EXE 的开发者。正式方案由两个独立 Python SDK wheel、
 两个 app-local DLL 和一个只读资源目录组成；最终用户不需要安装 Python、CUDA Toolkit，
 也不需要修改系统 `PATH`、`PYTHONPATH` 或注册表。
 
 ## 1. 运行结构与职责
 
-调用端拥有唯一的 `HidSession`。它只打开一个 COM 口，并同时供调用端的键盘控制和
-`vision_runtime.dll` 的鼠标瞄准使用。`VisionRuntime.from_app_dir()` 通过
-`hid_session=hid` 把同一个原生句柄附加给视觉 DLL，不会再次打开串口。
+主控拥有唯一的 `HidSession`。它只打开一个 COM 口，并同时供主控的键盘控制和
+`vision_runtime.dll` 的鼠标瞄准使用。视觉 SDK 不导入、不重导出也不依赖板子 Python
+SDK；主控在创建 `VisionRuntime` 后，通过 `vision.attach_hid_session()` 显式传入
+`board.native_handle` 和 `hid_dll_path=board.dll_path`，视觉 DLL 不会再次打开串口。
 
 SDK/DLL 负责 DXGI、TensorRT 推理、动作规划、受控标定和输出权限；调用端负责 UI、
 业务状态、COM 口、数据目录、标定文件，以及何时重新标定或执行全局安全释放。
@@ -47,11 +48,13 @@ resources/vision-runtime/
 
 ## 3. 构建并安装两个 wheel
 
-开发机使用 `uv`：
+开发机使用 `uv` 分别构建两个独立 wheel：
 
 ```powershell
 uv sync --extra dev
 & .\scripts\build_python_runtime_sdk.ps1 -OutputDir .\dist\python-sdk
+uv build --wheel --out-dir .\dist\python-sdk `
+  .\tools\rp2350_keymouse_bridge_firmware\sdk\python
 ```
 
 输出：
@@ -61,8 +64,9 @@ rp2350_hid_bridge-0.2.0-py3-none-any.whl
 cs2_vision_runtime_sdk-0.3.0-py3-none-any.whl
 ```
 
-runtime wheel 固定依赖 HID wheel。两者都只包含 Python 代码，不内嵌 DLL、模型或 GPU
-运行库。调用端项目应同时固定并安装这两个审核后的文件：
+Vision wheel 是零依赖包装层；HID wheel 由板子 SDK 独立发布。两者都只包含 Python
+代码，不内嵌 DLL、模型或 GPU 运行库。主控项目在自己的依赖锁中同时固定并安装两个
+审核后的文件：
 
 ```powershell
 uv pip install --python .\.venv\Scripts\python.exe --no-deps `
@@ -110,7 +114,7 @@ uv run python -m nuitka --standalone --output-dir=.\dist .\src\client_main.py
 `resources/vision-runtime/runtime-manifest.json` 同时绑定：
 
 - Python SDK 0.3.0 与 vision DLL ABI 2.1、features 31、SHA256；
-- HID Python SDK 0.2.0 与 HID DLL ABI 1.0、SHA256；
+- 原生 HID DLL ABI 1.0 与 SHA256，不声明 HID Python SDK 版本；
 - Windows x86_64、SM61、FP32 profile；
 - ONNX Runtime 1.17.3、CUDA 11.8、cuDNN 8.9.x、TensorRT 8.6.1.6；
 - 模型、schema、原生目录和稳定 `runtime_id`。
@@ -144,34 +148,38 @@ with VisionRuntime.from_app_dir(app_dir, data_dir=data_dir) as runtime:
 ## 8. 一个 COM 口的正式生命周期
 
 ```python
-from cs2_vision_runtime import HidSession, VisionRuntime
+from rp2350_hid_bridge import HidSession
+from cs2_vision_runtime import VisionRuntime
 
-with HidSession("COM4", app_dir=app_dir) as hid:
+with HidSession("COM4", app_dir=app_dir) as board:
     try:
         with VisionRuntime.from_app_dir(
             app_dir,
             data_dir=data_dir,
-            hid_session=hid,
-        ) as runtime:
-            runtime.set_hid_calibration_path(calibration_path)
-            profile = runtime.get_hid_calibration()
+        ) as vision:
+            vision.attach_hid_session(
+                board.native_handle,
+                hid_dll_path=board.dll_path,
+            )
+            vision.set_hid_calibration_path(calibration_path)
+            profile = vision.get_hid_calibration()
             if not profile.valid or user_requested_recalibration:
-                profile = runtime.calibrate_hid(adapter=0, output=0)
+                profile = vision.calibrate_hid(adapter=0, output=0)
 
-            runtime.open_dxgi(
+            vision.open_dxgi(
                 adapter=0,
                 output=0,
                 player_side="ct",
                 dry_run=False,
             )
-            with runtime.armed_output(fire=user_enabled_auto_fire):
+            with vision.armed_output(fire=user_enabled_auto_fire):
                 while True:
-                    action = runtime.process_next()
+                    action = vision.process_next()
                     if action is None:
                         break
                     consume(action)
     finally:
-        hid.stop_all()
+        board.stop_all()
 ```
 
 `set_hid_calibration_path()`、`get_hid_calibration()` 和 `calibrate_hid()` 都在 attached
@@ -186,13 +194,13 @@ profile。标定必须在 `open_dxgi()` 前、已进入对局且画面稳定时�
 
 全局释放只发生在以下边界：
 
-- 调用端显式执行 `hid.stop_all()`；
+- 主控显式执行 `board.stop_all()`；
 - 最后一个 HID session 结束或端口断开；
 - 进程清理；
 - 固件两秒控制租约超时。
 
-因此暂停自动瞄准不会误松开调用端键盘；结束整个控制会话时，最外层 finally 才调用
-`hid.stop_all()`。原生 session 进入 FAULTED 后会拒绝新命令，不会静默自动重连。
+因此暂停自动瞄准不会误松开主控键盘；结束整个控制会话时，最外层 finally 才调用
+`board.stop_all()`。原生 session 进入 FAULTED 后会拒绝新命令，不会静默自动重连。
 
 ## 10. 同步调用与线程模型
 
@@ -202,8 +210,8 @@ profile。标定必须在 `open_dxgi()` 前、已进入对局且画面稳定时�
 request/ACK 往返期间串行化，所以不会争抢 COM 口或破坏序列号。
 
 不要从多个线程同时操作同一个 `VisionRuntime`。可以让一个视觉线程调用
-`process_next()`，另一个控制线程调用 `hid.key_down()`、`hid.key_up()`。长时间
-`hid.run_script()` 会占用命令序列并推迟瞄准命令，应拆成短命令或放在非实时阶段。
+`process_next()`，另一个控制线程调用 `board.key_down()`、`board.key_up()`。长时间
+`board.run_script()` 会占用命令序列并推迟瞄准命令，应拆成短命令或放在非实时阶段。
 
 ## 11. TensorRT 首次初始化与缓存
 
@@ -229,13 +237,13 @@ COM/板卡和持久标定，最后显式解锁真实输出。不要通过修改�
 
 ## 13. 发布前检查清单
 
-- [ ] 两个 wheel 版本分别为 0.3.0 和 0.2.0，依赖关系已锁定。
+- [ ] 两个独立 wheel 版本分别为 0.3.0 和 0.2.0；Vision wheel 保持零依赖，主控依赖锁同时固定二者。
 - [ ] 两个 DLL 与 EXE 同级，resources 目录完整。
 - [ ] manifest v2 中 vision ABI 2.1/features 31、HID ABI 1.0 和全部 SHA256 正确。
 - [ ] 干净机器无需 Python、全局 CUDA、PATH 或 PYTHONPATH 即可启动。
 - [ ] TensorRT 首次构建和第二次缓存复用都通过。
 - [ ] DXGI dry-run 连续处理预期帧数且未打开 COM。
 - [ ] cached calibration 跨进程加载，显式重标定失败不会破坏旧 profile。
-- [ ] vision disarm 后调用端保持的键不松开，`hid.stop_all()` 能立即全局释放。
+- [ ] vision disarm 后主控保持的键不松开，`board.stop_all()` 能立即全局释放。
 - [ ] 视觉工作线程运行时，控制线程仍能可靠发送键盘命令。
 - [ ] PyInstaller/Nuitka 最终 EXE 目录通过 `VisionRuntime.from_app_dir()` 验证。
