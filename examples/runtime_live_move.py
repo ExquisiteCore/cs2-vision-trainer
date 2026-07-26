@@ -4,7 +4,8 @@ import argparse
 import os
 from pathlib import Path
 
-from cs2_vision_runtime import HidSession, VisionRuntime
+from cs2_vision_runtime import VisionRuntime
+from rp2350_hid_bridge import HidSession
 
 
 DEFAULT_DATA_DIR = Path(

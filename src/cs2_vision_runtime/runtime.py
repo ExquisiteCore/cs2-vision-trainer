@@ -596,7 +596,7 @@ class VisionRuntime:
         )
         self._handle = self._api.create()
         self._runtime_package = None
-        self._hid_session = None
+        self._hid_attached = False
         if not self._handle:
             raise RuntimeError("failed to create vision runtime")
         self._state = RuntimeState.READY
@@ -607,18 +607,10 @@ class VisionRuntime:
         app_dir: str | os.PathLike[str],
         *,
         data_dir: str | os.PathLike[str],
-        hid_session=None,
     ) -> "VisionRuntime":
         from .package import RuntimePackage
 
         package = RuntimePackage.load(Path(app_dir), Path(data_dir))
-        if hid_session is not None:
-            binding = hid_session._binding_for_runtime()
-            if binding.dll_path != package.hid_dll_path:
-                raise RuntimeCompatibilityError(
-                    "HID session DLL must match the runtime package: "
-                    f"expected {package.hid_dll_path}, got {binding.dll_path}"
-                )
         runtime = cls(
             dll_path=package.dll_path,
             dll_directories=package.native_directories,
@@ -631,8 +623,6 @@ class VisionRuntime:
                 backend=package.backend,
                 tensorrt_cache_path=package.cache_path,
             )
-            if hid_session is not None:
-                runtime.attach_hid_session(hid_session)
         except BaseException:
             runtime.close()
             raise
@@ -757,7 +747,7 @@ class VisionRuntime:
 
     def set_hid_port(self, port: str | None) -> None:
         self._require_state("set HID port", RuntimeState.READY)
-        if port and self._hid_session is not None:
+        if port and self._hid_attached:
             raise RuntimeStateError(
                 "HID port cannot be set while an attached HID session is configured"
             )
@@ -769,25 +759,35 @@ class VisionRuntime:
             "set HID port",
         )
 
-    def attach_hid_session(self, hid_session) -> None:
+    def attach_hid_session(
+        self,
+        native_handle: int,
+        *,
+        hid_dll_path: str | os.PathLike[str],
+    ) -> None:
         self._require_state("attach HID session", RuntimeState.READY)
-        binding = hid_session._binding_for_runtime()
+        if native_handle is None or int(native_handle) == 0:
+            raise RuntimeStateError("HID native handle must be non-zero")
+
         expected_hid_dll = (
-            self._api.path.parent / "rp2350_hid_bridge.dll"
-        ).resolve()
-        if binding.dll_path != expected_hid_dll:
+            self._runtime_package.hid_dll_path
+            if self._runtime_package is not None
+            else (self._api.path.parent / "rp2350_hid_bridge.dll").resolve()
+        )
+        actual_hid_dll = Path(hid_dll_path).resolve()
+        if actual_hid_dll != expected_hid_dll:
             raise RuntimeCompatibilityError(
                 "HID session DLL must match the vision runtime directory: "
-                f"expected {expected_hid_dll}, got {binding.dll_path}"
+                f"expected {expected_hid_dll}, got {actual_hid_dll}"
             )
         self._check(
             self._api.attach_hid_session(
                 self._require_handle(),
-                binding.handle,
+                int(native_handle),
             ),
             "attach HID session",
         )
-        self._hid_session = hid_session
+        self._hid_attached = True
 
     def set_hid_calibration_path(self, path: str | os.PathLike[str]) -> None:
         self._require_state("set HID calibration path", RuntimeState.READY)
@@ -943,7 +943,7 @@ class VisionRuntime:
         if player_side is not None:
             self.set_player_side(player_side)
         if hid_port is not None:
-            if hid_port and self._hid_session is not None:
+            if hid_port and self._hid_attached:
                 raise RuntimeStateError(
                     "DXGI cannot use a private HID port while an attached HID "
                     "session is configured"
@@ -1023,7 +1023,7 @@ class VisionRuntime:
 
     def stop_all(self) -> None:
         self._require_state("stop all", RuntimeState.OPEN)
-        if self._hid_session is not None:
+        if self._hid_attached:
             raise RuntimeStateError(
                 "shared HID session is caller-owned; use hid.stop_all()"
             )
@@ -1045,8 +1045,8 @@ class VisionRuntime:
         if not handle:
             if hasattr(self, "_state"):
                 self._state = RuntimeState.CLOSED
-            if hasattr(self, "_hid_session"):
-                self._hid_session = None
+            if hasattr(self, "_hid_attached"):
+                self._hid_attached = False
             return
 
         self._handle = 0
@@ -1066,7 +1066,7 @@ class VisionRuntime:
             if close_error is None:
                 raise
         finally:
-            self._hid_session = None
+            self._hid_attached = False
 
         if close_error is not None:
             raise close_error

@@ -1,10 +1,9 @@
 import ctypes
 import dataclasses
-import gc
+import inspect
 import importlib.util
 import os
 import re
-import weakref
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -275,19 +274,6 @@ class FakeApi:
         return 0
 
 
-class FakeHidSession:
-    def __init__(self, dll_path: Path, handle: int = 456):
-        self.binding = SimpleNamespace(
-            handle=handle,
-            dll_path=dll_path.resolve(),
-            abi_major=1,
-            abi_minor=0,
-        )
-
-    def _binding_for_runtime(self):
-        return self.binding
-
-
 def test_action_conversion_from_c_struct():
     raw = _CAction()
     raw.frame_index = 7
@@ -333,14 +319,13 @@ def test_runtime_wrapper_forwards_configuration():
     assert api.destroyed == [123]
 
 
-def test_shared_hid_attachment_is_ready_only_and_survives_reset():
+def test_raw_hid_attachment_is_ready_only_and_survives_reset():
     errors_module = importlib.import_module("cs2_vision_runtime.errors")
     api = FakeApi()
     runtime = VisionRuntime(_api=api)
-    hid = FakeHidSession(api.path.parent / "rp2350_hid_bridge.dll")
-    hid_reference = weakref.ref(hid)
+    hid_dll = api.path.parent / "rp2350_hid_bridge.dll"
 
-    runtime.attach_hid_session(hid)
+    runtime.attach_hid_session(456, hid_dll_path=hid_dll)
     assert api.calls[-1] == ("attach_hid_session", 456)
     with pytest.raises(
         errors_module.RuntimeStateError,
@@ -349,21 +334,45 @@ def test_shared_hid_attachment_is_ready_only_and_survives_reset():
         runtime.set_hid_port("COM4")
     assert ("set_hid_port", b"COM4") not in api.calls
 
-    del hid
-    gc.collect()
-    assert hid_reference() is not None
     runtime.open_video("videos/02.mp4", dry_run=True)
     with pytest.raises(errors_module.RuntimeStateError, match="attach HID session.*open"):
         runtime.attach_hid_session(
-            FakeHidSession(api.path.parent / "rp2350_hid_bridge.dll")
+            456,
+            hid_dll_path=hid_dll,
         )
     runtime.reset()
-    assert runtime._hid_session is hid_reference()
+    assert runtime._hid_attached is True
 
     runtime.close()
-    gc.collect()
-    assert hid_reference() is None
+    assert runtime._hid_attached is False
     assert api.destroyed == [123]
+
+
+@pytest.mark.parametrize("handle", [0, None])
+def test_raw_hid_attachment_rejects_empty_handle(handle):
+    errors_module = importlib.import_module("cs2_vision_runtime.errors")
+    runtime = VisionRuntime(_api=FakeApi())
+
+    with pytest.raises(errors_module.RuntimeStateError, match="non-zero"):
+        runtime.attach_hid_session(
+            handle,
+            hid_dll_path=Path("C:/app/rp2350_hid_bridge.dll"),
+        )
+
+
+def test_raw_hid_attachment_rejects_different_dll_before_native_call(tmp_path):
+    errors_module = importlib.import_module("cs2_vision_runtime.errors")
+    api = FakeApi()
+    runtime = VisionRuntime(_api=api)
+    calls_before = list(api.calls)
+
+    with pytest.raises(errors_module.RuntimeCompatibilityError, match="must match"):
+        runtime.attach_hid_session(
+            456,
+            hid_dll_path=tmp_path / "rp2350_hid_bridge.dll",
+        )
+
+    assert api.calls == calls_before
 
 
 def test_shared_runtime_stop_all_directs_caller_to_hid_owner():
@@ -371,7 +380,8 @@ def test_shared_runtime_stop_all_directs_caller_to_hid_owner():
     api = FakeApi()
     runtime = VisionRuntime(_api=api)
     runtime.attach_hid_session(
-        FakeHidSession(api.path.parent / "rp2350_hid_bridge.dll")
+        456,
+        hid_dll_path=api.path.parent / "rp2350_hid_bridge.dll",
     )
     runtime.open_video("videos/02.mp4", dry_run=True)
     calls_before = list(api.calls)
@@ -643,10 +653,9 @@ def test_close_destroys_handle_even_when_native_close_fails():
 def test_runtime_state_is_exported_from_public_package():
     package = importlib.import_module("cs2_vision_runtime")
     runtime_module = importlib.import_module("cs2_vision_runtime.runtime")
-    hid_package = importlib.import_module("rp2350_hid_bridge")
 
     assert package.RuntimeState is runtime_module.RuntimeState
-    assert package.HidSession is hid_package.HidSession
+    assert not hasattr(package, "HidSession")
     assert package.__version__ == "0.3.0"
 
 
@@ -713,11 +722,9 @@ def test_runtime_from_app_dir_loads_package_and_configures_model(tmp_path, monke
 
     monkeypatch.setattr(runtime_module, "_RuntimeApi", api_factory)
 
-    hid = FakeHidSession(package.hid_dll_path)
     runtime = VisionRuntime.from_app_dir(
         app_dir,
         data_dir=data_dir,
-        hid_session=hid,
     )
 
     assert loaded == [(app_dir, data_dir)]
@@ -727,50 +734,15 @@ def test_runtime_from_app_dir_loads_package_and_configures_model(tmp_path, monke
     assert ("set_schema", os.fsencode(package.schema_path)) in created[0][2].calls
     assert ("set_backend", b"ort-tensorrt") in created[0][2].calls
     assert ("set_tensorrt_cache_path", os.fsencode(package.cache_path)) in created[0][2].calls
-    assert ("attach_hid_session", 456) in created[0][2].calls
+    assert not any(call[0] == "attach_hid_session" for call in created[0][2].calls)
     assert runtime.runtime_package is package
     runtime.close()
 
 
-def test_runtime_from_app_dir_rejects_hid_dll_mismatch_before_loading_runtime(
-    tmp_path,
-    monkeypatch,
-):
-    runtime_module = importlib.import_module("cs2_vision_runtime.runtime")
-    package_module = importlib.import_module("cs2_vision_runtime.package")
-    errors_module = importlib.import_module("cs2_vision_runtime.errors")
-    app_dir = tmp_path / "MyClient"
-    data_dir = tmp_path / "data"
-    package = SimpleNamespace(
-        hid_dll_path=(app_dir / "rp2350_hid_bridge.dll").resolve(),
-    )
-    monkeypatch.setattr(
-        package_module.RuntimePackage,
-        "load",
-        classmethod(lambda cls, received_app, received_data: package),
-    )
+def test_runtime_from_app_dir_has_no_hid_object_parameter():
+    parameters = inspect.signature(VisionRuntime.from_app_dir).parameters
 
-    runtime_api_created = False
-
-    def api_factory(*args, **kwargs):
-        nonlocal runtime_api_created
-        runtime_api_created = True
-        raise AssertionError("runtime DLL must not load after HID DLL mismatch")
-
-    monkeypatch.setattr(runtime_module, "_RuntimeApi", api_factory)
-    hid = FakeHidSession(tmp_path / "other" / "rp2350_hid_bridge.dll")
-
-    with pytest.raises(
-        errors_module.RuntimeCompatibilityError,
-        match="HID session DLL must match the runtime package",
-    ):
-        VisionRuntime.from_app_dir(
-            app_dir,
-            data_dir=data_dir,
-            hid_session=hid,
-        )
-
-    assert runtime_api_created is False
+    assert "hid_session" not in parameters
 
 
 def test_runtime_calibration_path_failure_uses_last_error(tmp_path):
