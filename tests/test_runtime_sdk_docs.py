@@ -154,3 +154,43 @@ def test_top_level_docs_link_to_the_complete_python_sdk_guide():
     assert "rp2350_hid_bridge.dll" in build
     assert "2048 counts" not in readme
     assert "2048 counts" not in usage
+
+
+def test_partner_controller_guide_is_a_complete_standalone_integration_contract():
+    content = _read("docs/PARTNER_CONTROLLER_INTEGRATION.md")
+
+    for token in (
+        "Python 主控",
+        "vision_runtime.dll",
+        "rp2350_hid_bridge.dll",
+        "resources/vision-runtime",
+        "cs2_vision_runtime_sdk-0.3.0",
+        "rp2350_hid_bridge-0.2.0",
+        "两个独立 Python SDK",
+        "不要手工调用 ctypes.CDLL",
+        "from rp2350_hid_bridge import HidSession",
+        "from cs2_vision_runtime import VisionRuntime",
+        "with HidSession",
+        "app_dir=app_dir",
+        "VisionRuntime.from_app_dir",
+        "vision.attach_hid_session",
+        "board.native_handle",
+        "hid_dll_path=board.dll_path",
+        "board.stop_all()",
+        "process_next()",
+        "同步",
+        "线程",
+        "GIL",
+        "PyInstaller",
+        "Nuitka",
+        "RuntimeLoadError",
+        "RuntimeCompatibilityError",
+        "RuntimeCallError",
+        "RuntimeStateError",
+        "接入验收清单",
+    ):
+        assert token in content
+
+    assert "from cs2_vision_runtime import HidSession" not in content
+    assert "hid_session=" not in content
+    assert "runtime.stop_all()" not in content
