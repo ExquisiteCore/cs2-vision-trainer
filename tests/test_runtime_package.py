@@ -15,9 +15,11 @@ def make_app_layout(tmp_path: Path) -> tuple[Path, Path, dict]:
     model = resources / "model" / "best.onnx"
     schema = resources / "model" / "best.onnx.schema.json"
     dll = app_dir / "vision_runtime.dll"
+    hid_dll = app_dir / "rp2350_hid_bridge.dll"
     dll.parent.mkdir(parents=True)
     model.parent.mkdir(parents=True)
     dll.write_bytes(b"runtime-dll-v2")
+    hid_dll.write_bytes(b"rp2350-hid-bridge-v1")
     model.write_bytes(b"onnx-model")
     schema.write_text('{"classes":["ct_body","ct_head","t_body","t_head"]}', encoding="utf-8")
 
@@ -32,8 +34,8 @@ def make_app_layout(tmp_path: Path) -> tuple[Path, Path, dict]:
         (resources / relative).mkdir(parents=True)
 
     manifest = {
-        "manifest_version": 1,
-        "package_version": "0.2.0",
+        "manifest_version": 2,
+        "package_version": "0.3.0",
         "runtime_id": "sm61-fp32-model-a-ort1.17.3-trt8.6.1.6",
         "profile": {
             "os": "windows",
@@ -41,13 +43,22 @@ def make_app_layout(tmp_path: Path) -> tuple[Path, Path, dict]:
             "gpu_sm": 61,
             "precision": "fp32",
         },
-        "python_sdk": {"minimum": "0.2.0", "recommended": "0.2.0"},
+        "python_sdk": {"minimum": "0.3.0", "recommended": "0.3.0"},
         "dll": {
             "file_name": "vision_runtime.dll",
             "sha256": _sha256(dll),
             "abi_major": 2,
-            "abi_minor": 0,
-            "required_features": 15,
+            "abi_minor": 1,
+            "required_features": 31,
+        },
+        "hid_bridge": {
+            "dll": {
+                "file_name": "rp2350_hid_bridge.dll",
+                "sha256": _sha256(hid_dll),
+                "abi_major": 1,
+                "abi_minor": 0,
+            },
+            "python_sdk": {"minimum": "0.2.0", "recommended": "0.2.0"},
         },
         "backend": "ort-tensorrt",
         "model": {
@@ -85,6 +96,11 @@ def test_runtime_package_loads_valid_app_local_layout(tmp_path):
 
     assert package.app_dir == app_dir.resolve()
     assert package.dll_path == (app_dir / "vision_runtime.dll").resolve()
+    assert package.hid_dll_path == (app_dir / "rp2350_hid_bridge.dll").resolve()
+    assert package.hid_abi_major == 1
+    assert package.hid_abi_minor == 0
+    assert package.hid_python_sdk_minimum == "0.2.0"
+    assert package.hid_python_sdk_recommended == "0.2.0"
     assert package.model_path.name == "best.onnx"
     assert package.schema_path.name == "best.onnx.schema.json"
     assert package.backend == "ort-tensorrt"
@@ -99,7 +115,7 @@ def test_runtime_package_loads_valid_app_local_layout(tmp_path):
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [
-        (lambda value: value.update(manifest_version=2), "manifest_version"),
+        (lambda value: value.update(manifest_version=1), "manifest_version"),
         (lambda value: value["profile"].update(gpu_sm=75), "SM61"),
         (lambda value: value["profile"].update(precision="fp16"), "FP32"),
         (lambda value: value["python_sdk"].update(minimum="9.0.0"), "SDK"),
@@ -120,7 +136,7 @@ def test_runtime_package_rejects_incompatible_manifest(tmp_path, mutate, message
         RuntimePackage.load(app_dir, data_dir)
 
 
-@pytest.mark.parametrize("target", ["dll", "model", "schema"])
+@pytest.mark.parametrize("target", ["dll", "hid_dll", "model", "schema"])
 def test_runtime_package_rejects_tampered_critical_files(tmp_path, target):
     from cs2_vision_runtime.errors import RuntimeCompatibilityError
     from cs2_vision_runtime.package import RuntimePackage
@@ -128,12 +144,61 @@ def test_runtime_package_rejects_tampered_critical_files(tmp_path, target):
     app_dir, data_dir, _ = make_app_layout(tmp_path)
     targets = {
         "dll": app_dir / "vision_runtime.dll",
+        "hid_dll": app_dir / "rp2350_hid_bridge.dll",
         "model": app_dir / "resources" / "vision-runtime" / "model" / "best.onnx",
         "schema": app_dir / "resources" / "vision-runtime" / "model" / "best.onnx.schema.json",
     }
     targets[target].write_bytes(b"tampered")
 
     with pytest.raises(RuntimeCompatibilityError, match="SHA256"):
+        RuntimePackage.load(app_dir, data_dir)
+
+
+def test_runtime_package_rejects_missing_hid_dll(tmp_path):
+    from cs2_vision_runtime.errors import RuntimeLoadError
+    from cs2_vision_runtime.package import RuntimePackage
+
+    app_dir, data_dir, _ = make_app_layout(tmp_path)
+    (app_dir / "rp2350_hid_bridge.dll").unlink()
+
+    with pytest.raises(RuntimeLoadError, match="HID DLL"):
+        RuntimePackage.load(app_dir, data_dir)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda value: value["hid_bridge"]["dll"].update(
+                file_name="../rp2350_hid_bridge.dll"
+            ),
+            "relative to app_dir",
+        ),
+        (
+            lambda value: value["hid_bridge"]["dll"].update(abi_major=2),
+            "HID ABI",
+        ),
+        (
+            lambda value: value["hid_bridge"]["python_sdk"].update(
+                minimum="9.0.0"
+            ),
+            "HID Python SDK",
+        ),
+    ],
+)
+def test_runtime_package_rejects_incompatible_hid_component(
+    tmp_path,
+    mutate,
+    message,
+):
+    from cs2_vision_runtime.errors import RuntimeCompatibilityError
+    from cs2_vision_runtime.package import RuntimePackage
+
+    app_dir, data_dir, manifest = make_app_layout(tmp_path)
+    mutate(manifest)
+    write_manifest(app_dir, manifest)
+
+    with pytest.raises(RuntimeCompatibilityError, match=message):
         RuntimePackage.load(app_dir, data_dir)
 
 

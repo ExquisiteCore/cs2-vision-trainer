@@ -731,6 +731,47 @@ def test_runtime_from_app_dir_loads_package_and_configures_model(tmp_path, monke
     runtime.close()
 
 
+def test_runtime_from_app_dir_rejects_hid_dll_mismatch_before_loading_runtime(
+    tmp_path,
+    monkeypatch,
+):
+    runtime_module = importlib.import_module("cs2_vision_runtime.runtime")
+    package_module = importlib.import_module("cs2_vision_runtime.package")
+    errors_module = importlib.import_module("cs2_vision_runtime.errors")
+    app_dir = tmp_path / "MyClient"
+    data_dir = tmp_path / "data"
+    package = SimpleNamespace(
+        hid_dll_path=(app_dir / "rp2350_hid_bridge.dll").resolve(),
+    )
+    monkeypatch.setattr(
+        package_module.RuntimePackage,
+        "load",
+        classmethod(lambda cls, received_app, received_data: package),
+    )
+
+    runtime_api_created = False
+
+    def api_factory(*args, **kwargs):
+        nonlocal runtime_api_created
+        runtime_api_created = True
+        raise AssertionError("runtime DLL must not load after HID DLL mismatch")
+
+    monkeypatch.setattr(runtime_module, "_RuntimeApi", api_factory)
+    hid = FakeHidSession(tmp_path / "other" / "rp2350_hid_bridge.dll")
+
+    with pytest.raises(
+        errors_module.RuntimeCompatibilityError,
+        match="HID session DLL must match the runtime package",
+    ):
+        VisionRuntime.from_app_dir(
+            app_dir,
+            data_dir=data_dir,
+            hid_session=hid,
+        )
+
+    assert runtime_api_created is False
+
+
 def test_runtime_calibration_path_failure_uses_last_error(tmp_path):
     api = FakeApi()
     runtime = VisionRuntime(_api=api)

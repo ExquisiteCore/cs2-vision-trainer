@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from rp2350_hid_bridge import __version__ as hid_sdk_version
+
 from ._version import __version__
 from .errors import RuntimeCompatibilityError, RuntimeLoadError
 
@@ -81,6 +83,7 @@ class RuntimePackage:
     package_version: str
     runtime_id: str
     dll_path: Path
+    hid_dll_path: Path
     model_path: Path
     schema_path: Path
     native_directories: tuple[Path, ...]
@@ -89,6 +92,10 @@ class RuntimePackage:
     required_abi_major: int
     required_abi_minor: int
     required_features: int
+    hid_abi_major: int
+    hid_abi_minor: int
+    hid_python_sdk_minimum: str
+    hid_python_sdk_recommended: str
 
     @classmethod
     def load(
@@ -114,7 +121,7 @@ class RuntimePackage:
             ) from error
         manifest = _require_mapping(manifest, "root")
 
-        if manifest.get("manifest_version") != 1:
+        if manifest.get("manifest_version") != 2:
             raise RuntimeCompatibilityError(
                 f"unsupported runtime manifest_version: {manifest.get('manifest_version')!r}"
             )
@@ -141,6 +148,10 @@ class RuntimePackage:
 
         sdk = _require_mapping(manifest.get("python_sdk"), "python_sdk")
         minimum_sdk = _require_string(sdk.get("minimum"), "python_sdk.minimum")
+        recommended_sdk = _require_string(
+            sdk.get("recommended"), "python_sdk.recommended"
+        )
+        _version_tuple(recommended_sdk, "python_sdk.recommended")
         if _version_tuple(__version__, "SDK version") < _version_tuple(
             minimum_sdk, "python_sdk.minimum"
         ):
@@ -162,6 +173,58 @@ class RuntimePackage:
             )
         dll_path = (resolved_app / dll_name).resolve()
         _verify_file(dll_path, dll.get("sha256"), "DLL")
+
+        hid_bridge = _require_mapping(manifest.get("hid_bridge"), "hid_bridge")
+        hid_dll = _require_mapping(hid_bridge.get("dll"), "hid_bridge.dll")
+        hid_dll_name = _require_string(
+            hid_dll.get("file_name"), "hid_bridge.dll.file_name"
+        )
+        if Path(hid_dll_name).name != hid_dll_name:
+            raise RuntimeCompatibilityError(
+                "runtime HID DLL file_name must be relative to app_dir: "
+                f"{hid_dll_name}"
+            )
+        hid_dll_path = (resolved_app / hid_dll_name).resolve()
+        _verify_file(hid_dll_path, hid_dll.get("sha256"), "HID DLL")
+
+        try:
+            hid_abi_major = int(hid_dll["abi_major"])
+            hid_abi_minor = int(hid_dll["abi_minor"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise RuntimeCompatibilityError(
+                "runtime manifest HID ABI fields must be integers"
+            ) from error
+        if (hid_abi_major, hid_abi_minor) != (1, 0):
+            raise RuntimeCompatibilityError(
+                "runtime HID ABI must be 1.0, got "
+                f"{hid_abi_major}.{hid_abi_minor}"
+            )
+
+        hid_python_sdk = _require_mapping(
+            hid_bridge.get("python_sdk"), "hid_bridge.python_sdk"
+        )
+        hid_python_sdk_minimum = _require_string(
+            hid_python_sdk.get("minimum"),
+            "hid_bridge.python_sdk.minimum",
+        )
+        hid_python_sdk_recommended = _require_string(
+            hid_python_sdk.get("recommended"),
+            "hid_bridge.python_sdk.recommended",
+        )
+        installed_hid_sdk = _version_tuple(hid_sdk_version, "HID Python SDK version")
+        required_hid_sdk = _version_tuple(
+            hid_python_sdk_minimum,
+            "hid_bridge.python_sdk.minimum",
+        )
+        _version_tuple(
+            hid_python_sdk_recommended,
+            "hid_bridge.python_sdk.recommended",
+        )
+        if installed_hid_sdk < required_hid_sdk:
+            raise RuntimeCompatibilityError(
+                f"HID Python SDK {hid_sdk_version} is older than "
+                f"runtime-required HID Python SDK {hid_python_sdk_minimum}"
+            )
 
         model = _require_mapping(manifest.get("model"), "model")
         model_path = _resolve_resource(resources, model.get("path"), "model.path")
@@ -227,6 +290,7 @@ class RuntimePackage:
             package_version=package_version,
             runtime_id=runtime_id,
             dll_path=dll_path,
+            hid_dll_path=hid_dll_path,
             model_path=model_path,
             schema_path=schema_path,
             native_directories=native_directories,
@@ -235,4 +299,8 @@ class RuntimePackage:
             required_abi_major=required_abi_major,
             required_abi_minor=required_abi_minor,
             required_features=required_features,
+            hid_abi_major=hid_abi_major,
+            hid_abi_minor=hid_abi_minor,
+            hid_python_sdk_minimum=hid_python_sdk_minimum,
+            hid_python_sdk_recommended=hid_python_sdk_recommended,
         )
