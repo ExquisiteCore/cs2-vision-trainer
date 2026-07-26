@@ -7,8 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from rp2350_hid_bridge import __version__ as hid_sdk_version
-
 from ._version import __version__
 from .errors import RuntimeCompatibilityError, RuntimeLoadError
 
@@ -94,8 +92,6 @@ class RuntimePackage:
     required_features: int
     hid_abi_major: int
     hid_abi_minor: int
-    hid_python_sdk_minimum: str
-    hid_python_sdk_recommended: str
 
     @classmethod
     def load(
@@ -200,32 +196,6 @@ class RuntimePackage:
                 f"{hid_abi_major}.{hid_abi_minor}"
             )
 
-        hid_python_sdk = _require_mapping(
-            hid_bridge.get("python_sdk"), "hid_bridge.python_sdk"
-        )
-        hid_python_sdk_minimum = _require_string(
-            hid_python_sdk.get("minimum"),
-            "hid_bridge.python_sdk.minimum",
-        )
-        hid_python_sdk_recommended = _require_string(
-            hid_python_sdk.get("recommended"),
-            "hid_bridge.python_sdk.recommended",
-        )
-        installed_hid_sdk = _version_tuple(hid_sdk_version, "HID Python SDK version")
-        required_hid_sdk = _version_tuple(
-            hid_python_sdk_minimum,
-            "hid_bridge.python_sdk.minimum",
-        )
-        _version_tuple(
-            hid_python_sdk_recommended,
-            "hid_bridge.python_sdk.recommended",
-        )
-        if installed_hid_sdk < required_hid_sdk:
-            raise RuntimeCompatibilityError(
-                f"HID Python SDK {hid_sdk_version} is older than "
-                f"runtime-required HID Python SDK {hid_python_sdk_minimum}"
-            )
-
         model = _require_mapping(manifest.get("model"), "model")
         model_path = _resolve_resource(resources, model.get("path"), "model.path")
         schema_path = _resolve_resource(
@@ -301,6 +271,4 @@ class RuntimePackage:
             required_features=required_features,
             hid_abi_major=hid_abi_major,
             hid_abi_minor=hid_abi_minor,
-            hid_python_sdk_minimum=hid_python_sdk_minimum,
-            hid_python_sdk_recommended=hid_python_sdk_recommended,
         )

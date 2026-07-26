@@ -58,7 +58,6 @@ def make_app_layout(tmp_path: Path) -> tuple[Path, Path, dict]:
                 "abi_major": 1,
                 "abi_minor": 0,
             },
-            "python_sdk": {"minimum": "0.2.0", "recommended": "0.2.0"},
         },
         "backend": "ort-tensorrt",
         "model": {
@@ -99,8 +98,8 @@ def test_runtime_package_loads_valid_app_local_layout(tmp_path):
     assert package.hid_dll_path == (app_dir / "rp2350_hid_bridge.dll").resolve()
     assert package.hid_abi_major == 1
     assert package.hid_abi_minor == 0
-    assert package.hid_python_sdk_minimum == "0.2.0"
-    assert package.hid_python_sdk_recommended == "0.2.0"
+    assert not hasattr(package, "hid_python_sdk_minimum")
+    assert not hasattr(package, "hid_python_sdk_recommended")
     assert package.model_path.name == "best.onnx"
     assert package.schema_path.name == "best.onnx.schema.json"
     assert package.backend == "ort-tensorrt"
@@ -177,12 +176,6 @@ def test_runtime_package_rejects_missing_hid_dll(tmp_path):
         (
             lambda value: value["hid_bridge"]["dll"].update(abi_major=2),
             "HID ABI",
-        ),
-        (
-            lambda value: value["hid_bridge"]["python_sdk"].update(
-                minimum="9.0.0"
-            ),
-            "HID Python SDK",
         ),
     ],
 )
