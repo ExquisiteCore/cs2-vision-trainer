@@ -1,5 +1,7 @@
 """Python wrapper for the CS2 Vision C++ runtime DLL."""
 
+from rp2350_hid_bridge import HidSession
+
 from ._version import __version__
 from .errors import (
     RuntimeCallError,
@@ -21,6 +23,7 @@ from .package import RuntimePackage
 
 __all__ = [
     "HidCalibrationProfile",
+    "HidSession",
     "LockState",
     "RuntimeAbiInfo",
     "RuntimeCallError",

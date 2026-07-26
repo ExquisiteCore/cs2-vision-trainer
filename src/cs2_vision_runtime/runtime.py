@@ -18,16 +18,18 @@ from .errors import (
 
 
 _ABI_MAJOR = 2
-_MINIMUM_ABI_MINOR = 0
+_MINIMUM_ABI_MINOR = 1
 _FEATURE_TENSORRT_CACHE = 1 << 0
 _FEATURE_PERSISTENT_CALIBRATION = 1 << 1
 _FEATURE_OUTPUT_ARMING = 1 << 2
 _FEATURE_FIRE_ARMING = 1 << 3
+_FEATURE_SHARED_HID_SESSION = 1 << 4
 _REQUIRED_FEATURES = (
     _FEATURE_TENSORRT_CACHE
     | _FEATURE_PERSISTENT_CALIBRATION
     | _FEATURE_OUTPUT_ARMING
     | _FEATURE_FIRE_ARMING
+    | _FEATURE_SHARED_HID_SESSION
 )
 
 _REQUIRED_EXPORTS = (
@@ -42,6 +44,7 @@ _REQUIRED_EXPORTS = (
     "va_set_tensorrt_cache_path",
     "va_set_player_side",
     "va_set_hid_port",
+    "va_attach_hid_session",
     "va_set_dry_run",
     "va_set_output_enabled",
     "va_set_fire_enabled",
@@ -414,6 +417,12 @@ class _RuntimeApi:
             function.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
             function.restype = ctypes.c_int32
 
+        dll.va_attach_hid_session.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
+        dll.va_attach_hid_session.restype = ctypes.c_int32
+
         dll.va_set_dry_run.argtypes = [ctypes.c_void_p, ctypes.c_int32]
         dll.va_set_dry_run.restype = ctypes.c_int32
         dll.va_set_output_enabled.argtypes = [ctypes.c_void_p, ctypes.c_int32]
@@ -491,6 +500,9 @@ class _RuntimeApi:
 
     def set_hid_port(self, handle: int, port: Optional[bytes]) -> int:
         return int(self._dll.va_set_hid_port(handle, port))
+
+    def attach_hid_session(self, handle: int, hid_handle: int) -> int:
+        return int(self._dll.va_attach_hid_session(handle, hid_handle))
 
     def set_hid_calibration_path(self, handle: int, path: bytes) -> int:
         return int(self._dll.va_set_hid_calibration_path(handle, path))
@@ -584,6 +596,7 @@ class VisionRuntime:
         )
         self._handle = self._api.create()
         self._runtime_package = None
+        self._hid_session = None
         if not self._handle:
             raise RuntimeError("failed to create vision runtime")
         self._state = RuntimeState.READY
@@ -594,10 +607,18 @@ class VisionRuntime:
         app_dir: str | os.PathLike[str],
         *,
         data_dir: str | os.PathLike[str],
+        hid_session=None,
     ) -> "VisionRuntime":
         from .package import RuntimePackage
 
         package = RuntimePackage.load(Path(app_dir), Path(data_dir))
+        if hid_session is not None:
+            binding = hid_session._binding_for_runtime()
+            if binding.dll_path != package.hid_dll_path:
+                raise RuntimeCompatibilityError(
+                    "HID session DLL must match the runtime package: "
+                    f"expected {package.hid_dll_path}, got {binding.dll_path}"
+                )
         runtime = cls(
             dll_path=package.dll_path,
             dll_directories=package.native_directories,
@@ -610,6 +631,8 @@ class VisionRuntime:
                 backend=package.backend,
                 tensorrt_cache_path=package.cache_path,
             )
+            if hid_session is not None:
+                runtime.attach_hid_session(hid_session)
         except BaseException:
             runtime.close()
             raise
@@ -734,6 +757,10 @@ class VisionRuntime:
 
     def set_hid_port(self, port: str | None) -> None:
         self._require_state("set HID port", RuntimeState.READY)
+        if port and self._hid_session is not None:
+            raise RuntimeStateError(
+                "HID port cannot be set while an attached HID session is configured"
+            )
         self._check(
             self._api.set_hid_port(
                 self._require_handle(),
@@ -741,6 +768,26 @@ class VisionRuntime:
             ),
             "set HID port",
         )
+
+    def attach_hid_session(self, hid_session) -> None:
+        self._require_state("attach HID session", RuntimeState.READY)
+        binding = hid_session._binding_for_runtime()
+        expected_hid_dll = (
+            self._api.path.parent / "rp2350_hid_bridge.dll"
+        ).resolve()
+        if binding.dll_path != expected_hid_dll:
+            raise RuntimeCompatibilityError(
+                "HID session DLL must match the vision runtime directory: "
+                f"expected {expected_hid_dll}, got {binding.dll_path}"
+            )
+        self._check(
+            self._api.attach_hid_session(
+                self._require_handle(),
+                binding.handle,
+            ),
+            "attach HID session",
+        )
+        self._hid_session = hid_session
 
     def set_hid_calibration_path(self, path: str | os.PathLike[str]) -> None:
         self._require_state("set HID calibration path", RuntimeState.READY)
@@ -896,6 +943,11 @@ class VisionRuntime:
         if player_side is not None:
             self.set_player_side(player_side)
         if hid_port is not None:
+            if hid_port and self._hid_session is not None:
+                raise RuntimeStateError(
+                    "DXGI cannot use a private HID port while an attached HID "
+                    "session is configured"
+                )
             self.set_hid_port(hid_port)
         self._check(
             self._api.open_dxgi(
@@ -961,7 +1013,6 @@ class VisionRuntime:
             for cleanup in (
                 lambda: self.set_fire_enabled(False),
                 lambda: self.set_output_enabled(False),
-                self.stop_all,
             ):
                 try:
                     cleanup()
@@ -972,6 +1023,10 @@ class VisionRuntime:
 
     def stop_all(self) -> None:
         self._require_state("stop all", RuntimeState.OPEN)
+        if self._hid_session is not None:
+            raise RuntimeStateError(
+                "shared HID session is caller-owned; use hid.stop_all()"
+            )
         self._check(
             self._api.stop_all(self._require_handle()),
             "stop all",
@@ -990,6 +1045,8 @@ class VisionRuntime:
         if not handle:
             if hasattr(self, "_state"):
                 self._state = RuntimeState.CLOSED
+            if hasattr(self, "_hid_session"):
+                self._hid_session = None
             return
 
         self._handle = 0
@@ -1008,6 +1065,8 @@ class VisionRuntime:
         except BaseException:
             if close_error is None:
                 raise
+        finally:
+            self._hid_session = None
 
         if close_error is not None:
             raise close_error

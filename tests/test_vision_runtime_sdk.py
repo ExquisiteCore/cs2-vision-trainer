@@ -1,8 +1,10 @@
 import ctypes
 import dataclasses
+import gc
 import importlib.util
 import os
 import re
+import weakref
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -63,7 +65,7 @@ def test_runtime_abi_validation_accepts_only_matching_layout_and_features():
     errors_module = importlib.import_module("cs2_vision_runtime.errors")
     valid = runtime_module.RuntimeAbiInfo(
         abi_major=2,
-        abi_minor=0,
+        abi_minor=1,
         runtime_action_size=ctypes.sizeof(_CAction),
         hid_calibration_profile_size=ctypes.sizeof(_CCalibrationProfile),
         feature_flags=runtime_module._REQUIRED_FEATURES,
@@ -93,16 +95,16 @@ def test_runtime_package_abi_requirements_must_match_loaded_dll():
     errors_module = importlib.import_module("cs2_vision_runtime.errors")
     package = SimpleNamespace(
         required_abi_major=2,
-        required_abi_minor=0,
-        required_features=15,
+        required_abi_minor=1,
+        required_features=31,
         manifest_path=Path("runtime-manifest.json"),
     )
     abi = runtime_module.RuntimeAbiInfo(
         abi_major=2,
-        abi_minor=0,
+        abi_minor=1,
         runtime_action_size=ctypes.sizeof(_CAction),
         hid_calibration_profile_size=ctypes.sizeof(_CCalibrationProfile),
-        feature_flags=15,
+        feature_flags=31,
     )
     runtime_module._validate_package_abi(package, abi)
 
@@ -112,6 +114,8 @@ def test_runtime_package_abi_requirements_must_match_loaded_dll():
 
 
 class FakeApi:
+    path = Path("C:/app/vision_runtime.dll").resolve()
+
     def __init__(self):
         self.destroyed = []
         self.calls = []
@@ -120,8 +124,8 @@ class FakeApi:
         self.statuses = []
         self.abi_info = SimpleNamespace(
             abi_major=2,
-            abi_minor=0,
-            feature_flags=15,
+            abi_minor=1,
+            feature_flags=31,
         )
 
     def create(self):
@@ -160,6 +164,10 @@ class FakeApi:
     def set_hid_port(self, handle, port):
         self.calls.append(("set_hid_port", port))
         return 0
+
+    def attach_hid_session(self, handle, hid_handle):
+        self.calls.append(("attach_hid_session", hid_handle))
+        return self.next_status
 
     def set_hid_calibration_path(self, handle, path):
         self.calls.append(("set_hid_calibration_path", path))
@@ -266,6 +274,19 @@ class FakeApi:
         return 0
 
 
+class FakeHidSession:
+    def __init__(self, dll_path: Path, handle: int = 456):
+        self.binding = SimpleNamespace(
+            handle=handle,
+            dll_path=dll_path.resolve(),
+            abi_major=1,
+            abi_minor=0,
+        )
+
+    def _binding_for_runtime(self):
+        return self.binding
+
+
 def test_action_conversion_from_c_struct():
     raw = _CAction()
     raw.frame_index = 7
@@ -309,6 +330,55 @@ def test_runtime_wrapper_forwards_configuration():
     assert ("open_video", b"videos/02.mp4", True) in api.calls
     assert ("close",) in api.calls
     assert api.destroyed == [123]
+
+
+def test_shared_hid_attachment_is_ready_only_and_survives_reset():
+    errors_module = importlib.import_module("cs2_vision_runtime.errors")
+    api = FakeApi()
+    runtime = VisionRuntime(_api=api)
+    hid = FakeHidSession(api.path.parent / "rp2350_hid_bridge.dll")
+    hid_reference = weakref.ref(hid)
+
+    runtime.attach_hid_session(hid)
+    assert api.calls[-1] == ("attach_hid_session", 456)
+    with pytest.raises(
+        errors_module.RuntimeStateError,
+        match="attached HID session",
+    ):
+        runtime.set_hid_port("COM4")
+    assert ("set_hid_port", b"COM4") not in api.calls
+
+    del hid
+    gc.collect()
+    assert hid_reference() is not None
+    runtime.open_video("videos/02.mp4", dry_run=True)
+    with pytest.raises(errors_module.RuntimeStateError, match="attach HID session.*open"):
+        runtime.attach_hid_session(
+            FakeHidSession(api.path.parent / "rp2350_hid_bridge.dll")
+        )
+    runtime.reset()
+    assert runtime._hid_session is hid_reference()
+
+    runtime.close()
+    gc.collect()
+    assert hid_reference() is None
+    assert api.destroyed == [123]
+
+
+def test_shared_runtime_stop_all_directs_caller_to_hid_owner():
+    errors_module = importlib.import_module("cs2_vision_runtime.errors")
+    api = FakeApi()
+    runtime = VisionRuntime(_api=api)
+    runtime.attach_hid_session(
+        FakeHidSession(api.path.parent / "rp2350_hid_bridge.dll")
+    )
+    runtime.open_video("videos/02.mp4", dry_run=True)
+    calls_before = list(api.calls)
+
+    with pytest.raises(errors_module.RuntimeStateError, match="hid.stop_all"):
+        runtime.stop_all()
+
+    assert api.calls == calls_before
 
 
 def test_process_next_returns_action_or_none():
@@ -481,7 +551,7 @@ def test_iter_actions_yields_until_native_end_of_stream():
     assert [action.frame_index for action in actions] == [42, 42]
 
 
-def test_armed_output_always_disarms_and_stops():
+def test_armed_output_always_disarms_without_global_stop():
     api = FakeApi()
     runtime = VisionRuntime(_api=api)
     runtime.open_video("videos/02.mp4", dry_run=False)
@@ -490,12 +560,11 @@ def test_armed_output_always_disarms_and_stops():
         with runtime.armed_output(fire=True):
             raise RuntimeError("processing failed")
 
-    assert api.calls[-5:] == [
+    assert api.calls[-4:] == [
         ("set_output_enabled", True),
         ("set_fire_enabled", True),
         ("set_fire_enabled", False),
         ("set_output_enabled", False),
-        ("stop_all",),
     ]
 
 
@@ -506,7 +575,6 @@ def test_armed_output_preserves_body_error_and_attempts_every_cleanup():
 
     original_fire = api.set_fire_enabled
     original_output = api.set_output_enabled
-    original_stop = api.stop_all
 
     def fail_fire_off(handle, enabled):
         status = original_fire(handle, enabled)
@@ -516,23 +584,17 @@ def test_armed_output_preserves_body_error_and_attempts_every_cleanup():
         status = original_output(handle, enabled)
         return -1 if not enabled else status
 
-    def fail_stop(handle):
-        original_stop(handle)
-        return -1
-
     api.error = "cleanup failed"
     api.set_fire_enabled = fail_fire_off
     api.set_output_enabled = fail_output_off
-    api.stop_all = fail_stop
 
     with pytest.raises(ValueError, match="processing failed"):
         with runtime.armed_output(fire=True):
             raise ValueError("processing failed")
 
-    assert api.calls[-3:] == [
+    assert api.calls[-2:] == [
         ("set_fire_enabled", False),
         ("set_output_enabled", False),
-        ("stop_all",),
     ]
 
 
@@ -554,10 +616,9 @@ def test_armed_output_reports_first_cleanup_error_after_normal_exit():
         with runtime.armed_output(fire=True):
             pass
 
-    assert api.calls[-3:] == [
+    assert api.calls[-2:] == [
         ("set_fire_enabled", False),
         ("set_output_enabled", False),
-        ("stop_all",),
     ]
 
 
@@ -581,8 +642,11 @@ def test_close_destroys_handle_even_when_native_close_fails():
 def test_runtime_state_is_exported_from_public_package():
     package = importlib.import_module("cs2_vision_runtime")
     runtime_module = importlib.import_module("cs2_vision_runtime.runtime")
+    hid_package = importlib.import_module("rp2350_hid_bridge")
 
     assert package.RuntimeState is runtime_module.RuntimeState
+    assert package.HidSession is hid_package.HidSession
+    assert package.__version__ == "0.3.0"
 
 
 def test_runtime_converts_calibration_profile():
@@ -618,14 +682,15 @@ def test_runtime_from_app_dir_loads_package_and_configures_model(tmp_path, monke
     data_dir = tmp_path / "data"
     package = SimpleNamespace(
         dll_path=app_dir / "vision_runtime.dll",
+        hid_dll_path=app_dir / "rp2350_hid_bridge.dll",
         native_directories=(app_dir / "resources" / "native",),
         model_path=app_dir / "resources" / "model" / "best.onnx",
         schema_path=app_dir / "resources" / "model" / "best.onnx.schema.json",
         backend="ort-tensorrt",
         cache_path=data_dir / "cache" / "tensorrt" / "runtime-id",
         required_abi_major=2,
-        required_abi_minor=0,
-        required_features=15,
+        required_abi_minor=1,
+        required_features=31,
         manifest_path=app_dir / "resources" / "runtime-manifest.json",
     )
     loaded = []
@@ -641,12 +706,18 @@ def test_runtime_from_app_dir_loads_package_and_configures_model(tmp_path, monke
 
     def api_factory(dll_path=None, dll_directories=None):
         api = FakeApi()
+        api.path = Path(dll_path).resolve()
         created.append((Path(dll_path), tuple(Path(value) for value in dll_directories), api))
         return api
 
     monkeypatch.setattr(runtime_module, "_RuntimeApi", api_factory)
 
-    runtime = VisionRuntime.from_app_dir(app_dir, data_dir=data_dir)
+    hid = FakeHidSession(package.hid_dll_path)
+    runtime = VisionRuntime.from_app_dir(
+        app_dir,
+        data_dir=data_dir,
+        hid_session=hid,
+    )
 
     assert loaded == [(app_dir, data_dir)]
     assert created[0][0] == package.dll_path
@@ -655,6 +726,7 @@ def test_runtime_from_app_dir_loads_package_and_configures_model(tmp_path, monke
     assert ("set_schema", os.fsencode(package.schema_path)) in created[0][2].calls
     assert ("set_backend", b"ort-tensorrt") in created[0][2].calls
     assert ("set_tensorrt_cache_path", os.fsencode(package.cache_path)) in created[0][2].calls
+    assert ("attach_hid_session", 456) in created[0][2].calls
     assert runtime.runtime_package is package
     runtime.close()
 
